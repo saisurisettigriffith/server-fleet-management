@@ -11,6 +11,8 @@ logger.addHandler(file_handler)
 formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
 file_handler.setFormatter(formatter)
 
+# CONSTANTS SECTION
+
 def get_known(key):
     # STORE SOME CONFIGURATION VARIABLES
     if key == 'datacenter_id':
@@ -47,7 +49,30 @@ def get_known(key):
 def solution_data_preparation(solution, servers, datacenters, selling_prices):
     # CHECK DATA FORMAT
     solution = check_data_format(solution)
+    '''
+    
+    @Sai Surisetti - Violation Check Funtion - Observations
+    
+    This is for COLUMNS are in the right format. So no need to LOOP through the rows, just check the columns.
+    This is why we don't see a loop through the rows in the function and also in the check_data_format function.
+
+    '''
     solution = check_actions(solution)
+    '''
+    
+    @Sai Surisetti - Violation Check Funtion - Observations
+    
+    In the check_actions function, we are checking if the actions are in the right format.
+    
+    Code Snippet from the function:
+
+            solution = solution[solution['action'].isin(actions)]
+            if not (solution[solution['time_step'] == 1]['action'] == 'buy').all():
+                raise(ValueError('At time-step 1 it is only possible to use the "buy" action.'))
+    
+    This a essentially a loop "Filtering" through the rows and checking if the actions are in the right format.
+    
+    '''
     # CHECK DATACENTERS AND SERVERS NAMES
     solution = check_datacenters_servers_generation(solution)
     # ADD PROBLEM DATA
@@ -80,12 +105,16 @@ def check_actions(solution):
 
 '''
 
-@Sai Surisetti - Violation Check Function - Note to Self and Team, Tasks: (August 26, 2024 - 5:34 PM)
+@Sai Surisetti - Got a breif understanding of check_actions; still not completely clear on the syntax and logic of the function.
 
-1. Need to review this code again, as I did not get a complete picture of how this code is functioning
-and what other functions could be related to this function, the initial stage, other misc to consider.
+I am assuming, it takes care of the following:
 
-This is where we can continue from when we get back from the break to continue reviewing the code.
+1. Check if only actions mentioned in the "CONSTANTS SECTION" are used in the solution.
+2. Check if at time-step 1, only "buy" action is used - because initally all our servers slots are empty and we need to buy servers.
+
+Q: Where are we checking whether they are ONLY buying servers at release time (time-step where you are allowed to purchase servers)?
+
+... Continue from here (August 26, 2024 - 6:09 PM)
 
 '''
 
