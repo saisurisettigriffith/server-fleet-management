@@ -82,7 +82,7 @@ def check_actions(solution):
 
 @Sai Surisetti - Violation Check Function - Note to Self and Team, Tasks: (August 26, 2024 - 5:34 PM)
 
-1. Need to review this code again, as I did not get the complete picture of how this code is functioning
+1. Need to review this code again, as I did not get a complete picture of how this code is functioning
 and what other functions could be related to this function, the initial stage, other misc to consider.
 
 This is where we can continue from when we get back from the break to continue reviewing the code.
