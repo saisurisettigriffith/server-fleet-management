@@ -1,5 +1,5 @@
 from seeds import known_seeds
-from utils import load_problem_data, save_solution
+from utils import save_solution
 import application as app
 from Classes import *
 
