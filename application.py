@@ -1,115 +1,102 @@
 import numpy as np
 import pandas as pd
-import evaluation as ev
-from scipy.stats import truncweibull_min, truncnorm
-from Classes import DataCenter, Server, Inventory
+from Classes import *
 
-global inventory
-global simulation
-global debuggingmode
+class Simulation:
+    def __init__(self, givens, input_actual, time_steps, debugging):
+        self.givens = givens
+        self.input_actual = input_actual.demand_data_df
+        self.inventory = Inventory(givens)
+        self.time_steps = time_steps
+        self.debugging = debugging
 
-def calculate_utilization(data_centers, demand_data):
-    total_utilization = 0
-    count = 0
-    
-    for dc in data_centers:
-        for server in dc.servers:
-            if server.deployed:
-                demand = demand_data.get((server.generation, dc.latency_sensitivity), 0)
-                met_demand = min(server.capacity, demand)
-                total_utilization += met_demand / server.capacity if server.capacity > 0 else 0
-                count += 1
+    def print_data(self):
+        print("\'input_actual\' Data:")
+        print(self.input_actual)
+        print(self.givens)
 
-    average_utilization = total_utilization / count if count > 0 else 0
-    return average_utilization
+    def start_simulation(self):
+        self.print_data()
+        print("Simulation Started")
+        for t in range(1, self.time_steps + 1):
+            print(f"Simulating time step {t}")
+            self.process_time_step(t)
 
-def manage_server_actions(data_centers, demand_data, time_step):
-    for dc in data_centers:
-        for server in dc.servers:
-            if server.deployed:
-                # Example heuristic: dismiss server if it's reaching end of life
-                if server.operational_time >= server.life_expectancy - 1:
-                    dc.remove_server(server)
-                else:
-                    # Evaluate demand and decide whether to hold or move
-                    current_demand = demand_data.get((server.generation, dc.latency_sensitivity), 0)
-                    if current_demand < server.capacity * 0.3:  # Arbitrary threshold to consider moving
-                        target_dc = find_new_datacenter(data_centers, dc, server)
-                        if target_dc:
-                            move_server(dc, target_dc, server)
-                    # Otherwise, hold (do nothing)
-            else:
-                # Check if buying a new server is beneficial
-                if should_buy_new_server(dc, server, demand_data, time_step):
-                    dc.add_server(server)
+    def process_time_step(self, current_time_step):
+        self.handle_demand(current_time_step)
+        self.dismiss_servers()
+        print(f"Utilization at time step {current_time_step}: {self.calculate_utilization(current_time_step)}")
 
-def find_new_datacenter(data_centers, current_dc, server):
-    # Example logic to find a new datacenter with more demand and enough capacity
-    for dc in data_centers:
-        if dc != current_dc and dc.can_add_server(server):
-            return dc
-    return None
 
-def move_server(source_dc, target_dc, server):
-    source_dc.remove_server(server)
-    target_dc.add_server(server)
+    def handle_demand(self, current_time_step):
+        # Fetching demand data for the current time step
+        demand_data = self.input_actual[self.input_actual['time_step'] == current_time_step]
+        print(f"Handling demand for time step {current_time_step}")
+        print(demand_data)
+        for index, demand in demand_data.iterrows():
+            # Process each latency sensitivity level separately
+            for latency_sensitivity in ['high', 'low', 'medium']:
+                needed_capacity = demand[latency_sensitivity]
+                available_servers = [
+                    server for dc in self.inventory.datacenters for server in dc.servers
+                    if server.generation == demand['server_generation'] and server.latency_sensitivity == latency_sensitivity
+                ]
+                total_available_capacity = sum(server.capacity for server in available_servers)
 
-def should_buy_new_server(dc, server, demand_data, time_step):
-    # Example heuristic: buy new server if current demand exceeds a certain threshold
-    demand = demand_data.get((server.generation, dc.latency_sensitivity), 0)
-    return demand > server.capacity * 0.8  # Another arbitrary threshold
+                # Check if additional servers are needed to meet the demand
+                if needed_capacity > total_available_capacity:
+                    self.buy_servers(demand['server_generation'], latency_sensitivity, needed_capacity - total_available_capacity)
 
-def initialize_variables(demand, datacenters, servers, selling_prices, time_steps, seed=None, debugging=False):
 
-    debuggingmode = debugging
-    # SET SEED
-    np.random.seed(seed)
-    # GET ACTUAL DEMAND
-    demand = ev.get_actual_demand(demand)
-    print("Demand: \n", demand)
-    print("Datacenters: \n", datacenters)
-    print("Servers: \n", servers)
-    print("Selling Prices: \n", selling_prices)
-    print("Time Steps: \n", time_steps)
-    selling_prices = selling_prices.pivot(index='server_generation', columns='latency_sensitivity', values='selling_price')
-    simulation = demand.merge(selling_prices, on='server_generation', how='left', suffixes=('_demand', '_price'))
-    simulation = simulation.rename(columns={
-        'high_demand': 'high',
-        'low_demand': 'low',
-        'medium_demand': 'medium',
-        'high_price': 'price_high',
-        'low_price': 'price_low',
-        'medium_price': 'price_medium'
-    })
-    simulation = simulation.reset_index(drop=True, inplace=False)
-    print("Simulation: \n", simulation)
-    return simulation
+    def buy_servers(self, generation, latency_sensitivity, additional_capacity_needed):
+        # Fetch server data based on the generation
+        server_data = self.givens.servers_df[self.givens.servers_df['server_generation'] == generation].iloc[0]
+        slots_needed = server_data['slots_size']
 
-def start_simulation(demand, datacenters, servers, selling_prices, time_steps, seed=None, debugging=False):
-    # Initialize the simulation environment
-    global inventory  # Ensure inventory is accessible globally if needed elsewhere
-    inventory = Inventory(datacenters, servers, selling_prices)
-    
-    # Set random seed for reproducibility
-    np.random.seed(seed)
+        # Iterate through each data center to find space for new servers
+        for datacenter in self.inventory.datacenters:
+            while additional_capacity_needed > 0 and datacenter.empty_slots >= slots_needed:
+                new_server = Server(self.givens, generation, latency_sensitivity, datacenter)
+                # Check again if there is enough space after server object creation
+                if datacenter.can_add_server(new_server):
+                    datacenter.add_server(new_server)
+                    additional_capacity_needed -= new_server.capacity
+                # Break the inner loop if the current data center can no longer accommodate more servers
+                if datacenter.empty_slots < slots_needed:
+                    break
 
-    # Main simulation loop
-    for t in range(1, time_steps + 1):
-        print(f"Time Step {t}/{time_steps}")
-        # Simulate time step in inventory
-        inventory.simulate_time_step()
-        
-        # Optionally, calculate and display metrics at each step or based on condition
-        if debugging:
-            print("Current Utilization:", calculate_utilization(inventory.datacenters, demand))
-            print("Total Energy Cost:", inventory.get_total_energy_cost())
-    
-    # Final output after simulation ends
-    print("Simulation Complete")
-    return inventory  # Return the inventory for further analysis if needed
+        # Optionally handle the scenario where additional capacity could not be met by existing data centers
+        if additional_capacity_needed > 0:
+            print(f"Not enough capacity to meet the demand for {generation} servers with {latency_sensitivity} sensitivity. Missing capacity: {additional_capacity_needed}")
 
-def solution_function(demand, datacenters, servers, selling_prices, time_steps=168, seed=None, debugging=False):
-    # Start the simulation with the given parameters
-    start_simulation(demand, datacenters, servers, selling_prices, time_steps, seed, debugging)
-    
+
+    def dismiss_servers(self):
+        # Dismiss servers based on life expectancy
+        for datacenter in self.inventory.datacenters:
+            for server in datacenter.servers[:]:
+                if server.remaining_life <= 0:
+                    datacenter.remove_server(server)
+
+    def calculate_utilization(self, current_time_step):
+        total_capacity = 0
+        total_demand_met = 0
+        for datacenter in self.inventory.datacenters:
+            for server in datacenter.servers:
+                if server.deployed:
+                    # Aggregate demand based on latency sensitivity handled by the server
+                    latency_column = server.latency_sensitivity
+                    demand = self.input_actual.loc[
+                        (self.input_actual['time_step'] == current_time_step) &
+                        (self.input_actual['server_generation'] == server.generation), latency_column].sum()
+                    met_demand = min(demand, server.capacity)
+                    total_demand_met += met_demand
+                    total_capacity += server.capacity
+        if total_capacity > 0:
+            return total_demand_met / total_capacity
+        else:
+            return 0
+
+def solution_function(givens, input_actual, time_steps=168, debugging=False):
+    simulation = Simulation(givens, input_actual, time_steps, debugging)
+    simulation.start_simulation()
     return [{'message': 'Simulation Completed Successfully'}]

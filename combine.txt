@@ -1,3 +1,6 @@
+Filename: Classes.py
+Path: Classes.py
+
 import utils as utl
 import application as app
 import seeds as sds
@@ -182,3 +185,60 @@ class InputDemandDataActual:
     def __init__(self, sample_data=InputDemandDataSample(), seed=None):
         np.random.seed(seed)
         self.demand_data_df = get_actual_demand(sample_data.demand_data_df)
+
+Filename: mysolution.py
+Path: mysolution.py
+
+from seeds import known_seeds
+from utils import load_problem_data, save_solution
+import application as app
+from Classes import *
+
+outputdirectory = "output_actual/"
+seeds = known_seeds('training')
+
+x = 1
+for seed in seeds:
+    if (x == 0):
+        break
+    givens = ProblemData()
+    input_actual = InputDemandDataActual(seed=seed)
+    solution_json = app.solution_function(givens, input_actual, debugging=True)
+    # SAVE YOUR SOLUTION
+    save_solution(solution_json, f'{outputdirectory}/{seed}.json')
+    x -= 1
+
+Filename: application.py
+Path: application.py
+
+import numpy as np
+import pandas as pd
+import evaluation as ev
+from scipy.stats import truncweibull_min, truncnorm
+from Classes import *
+
+class Simulation:
+    def __init__(self, givens, input_actual, time_steps, debugging):
+        self.givens = givens
+        self.input_actual = input_actual.demand_data_df
+        self.inventory = Inventory(givens)
+        self.time_steps = time_steps
+        self.debugging = debugging
+
+    def print_data(self):
+        print("\'input_actual\' Data:")
+        print(self.input_actual)
+        print(self.givens)
+
+    def start_simulation(self):
+        self.print_data()
+        print("Simulation Started")
+        for t in range(1, self.time_steps + 1):
+            print(f"Simulating time step {t}")
+            self.process_time_step(t)
+
+def solution_function(givens, input_actual, time_steps=168, debugging=False):
+    simulation = Simulation(givens, input_actual, time_steps, debugging)
+    simulation.start_simulation()
+    return [{'message': 'Simulation Completed Successfully'}]
+

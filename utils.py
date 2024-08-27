@@ -40,6 +40,32 @@ def load_problem_data(path=None):
     selling_prices = pd.read_csv(p)
     return demand, datacenters, servers, selling_prices
 
+def load_problem_data_without_demand(path=None):
+    if path is None:
+        path = './data/'  
+    
+    # LOAD DATACENTERS DATA
+    p = abspath(join(path, 'datacenters.csv'))
+    datacenters = pd.read_csv(p)
+    
+    # LOAD SERVERS DATA
+    p = abspath(join(path, 'servers.csv'))
+    servers = pd.read_csv(p)
+    
+    # LOAD SELLING PRICES DATA
+    p = abspath(join(path, 'selling_prices.csv'))
+    selling_prices = pd.read_csv(p)
+    return datacenters, servers, selling_prices
+
+def load_demand(path=None):
+    if path is None:
+        path = './data/'  
+    
+    # LOAD DEMAND
+    p = abspath(join(path, 'demand.csv'))
+    demand = pd.read_csv(p)  
+    return demand
+
 if __name__ == '__main__':
     # Load solution
     path = './data/solution_example.json'
