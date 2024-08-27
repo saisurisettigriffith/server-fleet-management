@@ -168,6 +168,23 @@ class Inventory:
             if server.deployed and server.moved_this_step:
                 total_cost += server.cost_of_moving
         return total_cost
+    def get_aggregated_server_capacities(self):
+        # Aggregate server capacities by generation and latency sensitivity
+        capacity_data = []
+        for dc in self.datacenters:
+            for server in dc.servers:
+                if server.deployed:
+                    capacity_data.append({
+                        'server_generation': server.generation,
+                        'latency_sensitivity': server.latency_sensitivity,
+                        'capacity': server.capacity
+                    })
+
+        df = pd.DataFrame(capacity_data)
+        if not df.empty:
+            return df.groupby(['server_generation', 'latency_sensitivity'])['capacity'].sum().unstack(fill_value=0)
+        else:
+            return pd.DataFrame()
 
 class ProblemData:
     # Constructor that uses load_problem_data to load the data from the csv files
