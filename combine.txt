@@ -207,7 +207,7 @@ Filename: mysolution.py
 Path: mysolution.py
 
 from seeds import known_seeds
-from utils import load_problem_data, save_solution
+from utils import save_solution
 import application as app
 from Classes import *
 
@@ -282,50 +282,6 @@ class Simulation:
 
                 if needed_capacity > total_available_capacity:
                     self.buy_servers(demand['server_generation'], latency_sensitivity, needed_capacity - total_available_capacity)
-
-
-    # def buy_servers(self, generation, latency_sensitivity, additional_capacity_needed):
-    #     # Fetch server data based on the generation
-    #     server_data = self.givens.servers_df[self.givens.servers_df['server_generation'] == generation].iloc[0]
-    #     slots_needed = server_data['slots_size']
-
-    #     # Iterate through each data center to find space for new servers
-    #     for datacenter in self.inventory.datacenters:
-    #         while additional_capacity_needed > 0 and datacenter.empty_slots >= slots_needed:
-    #             new_server = Server(self.givens, generation, latency_sensitivity, datacenter)
-    #             # Check again if there is enough space after server object creation
-    #             if datacenter.can_add_server(new_server):
-    #                 datacenter.add_server(new_server)
-    #                 additional_capacity_needed -= new_server.capacity
-    #             # Break the inner loop if the current data center can no longer accommodate more servers
-    #             if datacenter.empty_slots < slots_needed:
-    #                 break
-
-    #     # Optionally handle the scenario where additional capacity could not be met by existing data centers
-    #     if additional_capacity_needed > 0:
-    #         print(f"Not enough capacity to meet the demand for {generation} servers with {latency_sensitivity} sensitivity. Missing capacity: {additional_capacity_needed}")
-
-    # def buy_servers(self, generation, latency_sensitivity, additional_capacity_needed):
-    #     print(f"Trying to meet additional demand of {additional_capacity_needed} with new servers.")
-    #     server_data = self.givens.servers_df[self.givens.servers_df['server_generation'] == generation].iloc[0]
-    #     slots_needed = server_data['slots_size']
-
-    #     for datacenter in self.inventory.datacenters:
-    #         while additional_capacity_needed > 0 and datacenter.empty_slots >= slots_needed:
-    #             new_server = Server(self.givens, generation, latency_sensitivity, datacenter)
-    #             if new_server.capacity < additional_capacity_needed and datacenter.can_add_server(new_server):
-    #                 datacenter.add_server(new_server)
-    #                 additional_capacity_needed -= new_server.capacity
-    #                 print(f"Added one {generation} server to {datacenter.identifier}; remaining demand: {additional_capacity_needed}.")
-    #             else:
-    #                 print("No suitable server found or datacenter capacity reached.")
-    #                 break
-
-    #         if additional_capacity_needed <= 0:
-    #             break
-
-    #     if additional_capacity_needed > 0:
-    #         print(f"Warning: Not enough capacity to meet the demand for {generation} servers with {latency_sensitivity} sensitivity. Missing capacity: {additional_capacity_needed}")
 
     def buy_servers(self, generation, latency_sensitivity, additional_capacity_needed):
         print(f"Trying to meet additional demand of {additional_capacity_needed} with new servers.")

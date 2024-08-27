@@ -10,7 +10,28 @@ class Simulation:
         self.inventory = Inventory(givens)
         self.time_steps = time_steps
         self.debugging = debugging
-        self.adjusted_capacities = None  # Store adjusted capacities here
+        self.failure_rates = self.sample_failure_rates()  # Sample once and use throughout the simulation
+        self.hello = self.print_available_keys()
+
+    def print_available_keys(self):
+        print("Available keys in failure_rates:", self.failure_rates.keys())
+        
+        return True
+
+    def sample_failure_rates(self):
+        # Sampling failure rates for each server type and generation
+        rates = {}
+        for generation in self.givens.servers_df['server_generation'].unique():
+            rates[generation] = truncweibull_min.rvs(0.3, 0.05, 0.1, size=1).item()
+        return rates
+
+    def adjust_capacity_by_failure_rate(self, capacity, generation):
+        # Use the pre-sampled failure rate
+        failure_rate = self.failure_rates[generation]
+        adjusted_capacity = int(capacity * (1 - failure_rate))
+        if self.debugging:
+            print(f"Adjusting capacity for {generation}: original={capacity}, adjusted={adjusted_capacity}, failure_rate={failure_rate}")
+        return adjusted_capacity
 
     def print_data(self):
         print("\'input_actual\' Data:")
@@ -26,13 +47,20 @@ class Simulation:
 
     def process_time_step(self, current_time_step):
         current_capacities = self.inventory.get_aggregated_server_capacities()
-        self.adjusted_capacities = current_capacities.applymap(self.adjust_capacity_by_failure_rate)
-        print(f"Adjusted Capacities at time step {current_time_step}")
-        print(self.adjusted_capacities)
+        if not current_capacities.empty:
+            # If the DataFrame is not empty, adjust capacities
+            self.adjusted_capacities = current_capacities.apply(
+                lambda x: self.adjust_capacity_by_failure_rate(x['capacity'], x.name),
+                axis=1
+            )
+            print(f"Adjusted Capacities at time step {current_time_step}:")
+            print(self.adjusted_capacities)
+        else:
+            print("No capacities to adjust.")
+
         self.handle_demand(current_time_step)
         print(f"Utilization at time step {current_time_step}: {self.calculate_utilization(current_time_step)}")
         self.dismiss_servers()
-
 
     def handle_demand(self, current_time_step):
         demand_data = self.input_actual[self.input_actual['time_step'] == current_time_step]
@@ -43,12 +71,7 @@ class Simulation:
                     server for dc in self.inventory.datacenters for server in dc.servers
                     if server.generation == demand['server_generation'] and server.latency_sensitivity == latency_sensitivity
                 ]
-                #print both normal and adjusted capacities
-                print(f"Normal Capacities at time step {current_time_step}")
-                print(self.inventory.get_aggregated_server_capacities())
-                print(f"Adjusted Capacities at time step {current_time_step}")
-                print(self.adjusted_capacities)
-                total_available_capacity = sum(self.adjusted_capacities.get((server.generation, server.latency_sensitivity), 0) for server in available_servers)
+                total_available_capacity = sum(server.capacity for server in available_servers)
 
                 if needed_capacity > total_available_capacity:
                     self.buy_servers(demand['server_generation'], latency_sensitivity, needed_capacity - total_available_capacity)
@@ -57,7 +80,7 @@ class Simulation:
         print(f"Trying to meet additional demand of {additional_capacity_needed} with new servers.")
         server_data = self.givens.servers_df[self.givens.servers_df['server_generation'] == generation].iloc[0]
         slots_needed = server_data['slots_size']
-        purchase_limit = 10  # Limit the number of server purchases per timestep
+        purchase_limit = 10  # This could be adjusted based on strategic needs
 
         for datacenter in self.inventory.datacenters:
             purchase_count = 0
@@ -68,8 +91,7 @@ class Simulation:
                     additional_capacity_needed -= new_server.capacity
                     purchase_count += 1
                     print(f"Added one {generation} server to {datacenter.identifier}; remaining demand: {additional_capacity_needed}.")
-                else:
-                    print("No suitable server found or datacenter capacity reached.")
+                if additional_capacity_needed <= 0:
                     break
 
             if additional_capacity_needed <= 0 or purchase_count == purchase_limit:
@@ -78,13 +100,9 @@ class Simulation:
         if additional_capacity_needed > 0:
             print(f"Warning: Not enough capacity to meet the demand for {generation} servers with {latency_sensitivity} sensitivity after {purchase_limit} purchases. Missing capacity: {additional_capacity_needed}")
 
-
     def dismiss_servers(self):
-        # Dismiss servers based on life expectancy
         for datacenter in self.inventory.datacenters:
-            for server in datacenter.servers[:]:
-                if server.remaining_life <= 0:
-                    datacenter.remove_server(server)
+            datacenter.dismiss_servers()
 
     def calculate_utilization(self, current_time_step):
         total_capacity = 0
@@ -92,7 +110,6 @@ class Simulation:
         for datacenter in self.inventory.datacenters:
             for server in datacenter.servers:
                 if server.deployed:
-                    # Aggregate demand based on latency sensitivity handled by the server
                     latency_column = server.latency_sensitivity
                     demand = self.input_actual.loc[
                         (self.input_actual['time_step'] == current_time_step) &
@@ -104,14 +121,6 @@ class Simulation:
             return total_demand_met / total_capacity
         else:
             return 0
-    def get_capacity_by_server_generation_latency_sensitivity(self, fleet):
-        # Adjust fleet capacity by failure rate
-        capacity = fleet.groupby(by=['server_generation', 'latency_sensitivity'])['capacity'].sum().unstack(fill_value=0)
-        return capacity.applymap(self.adjust_capacity_by_failure_rate)
-
-    def adjust_capacity_by_failure_rate(self, capacity):
-        failure_rate = truncweibull_min.rvs(0.3, 0.05, 0.1, size=1).item()
-        return int(capacity * (1 - failure_rate))
 
 def solution_function(givens, input_actual, time_steps=168, debugging=False):
     simulation = Simulation(givens, input_actual, time_steps, debugging)

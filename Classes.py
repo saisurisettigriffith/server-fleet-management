@@ -7,30 +7,56 @@ from evaluation import *
 
 class Server:
     def __init__(self, givens, generation, latency, data_center):
-        server_data = givens.servers_df[givens.servers_df['server_generation'] == generation].iloc[0]
-        selling_price_data = givens.selling_prices_df[givens.selling_prices_df['server_generation'] == generation]
-        self.identifier = f"{generation}_{data_center.identifier}_{np.random.randint}"  # Example to create a unique identifier
         self.generation = generation
-        self.server_type = server_data['server_type']
-        self.capacity = server_data['capacity']
-        self.slots_needed = server_data['slots_size']
-        self.energy_consumption = server_data['energy_consumption']
-        self.purchase_price = server_data['purchase_price']
-        self.life_expectancy = server_data['life_expectancy']
-        self.cost_of_moving = server_data['cost_of_moving']
-        self.maintenance_fee = server_data['average_maintenance_fee']
-        self.release_time_bounds = eval(server_data['release_time'])
         self.latency_sensitivity = latency
-
-        self.sell_price_low = selling_price_data[selling_price_data['latency_sensitivity'] == 'low']['selling_price'].iloc[0]
-        self.sell_price_medium = selling_price_data[selling_price_data['latency_sensitivity'] == 'medium']['selling_price'].iloc[0]
-        self.sell_price_high = selling_price_data[selling_price_data['latency_sensitivity'] == 'high']['selling_price'].iloc[0]
-
-        self.remaining_life = self.life_expectancy
-        self.deployed = self.remaining_life > 0
-        self.operational_time = 0
         self.data_center = data_center
-        self.selling_price = self.sell_price_low if self.latency_sensitivity == 'low' else self.sell_price_medium if self.latency_sensitivity == 'medium' else self.sell_price_high
+
+        # Using properties to dynamically fetch data when needed
+        self._givens = givens
+
+    @property
+    def server_data(self):
+        # Dynamically fetches server data
+        return self._givens.servers_df[self._givens.servers_df['server_generation'] == self.generation].iloc[0]
+
+    @property
+    def selling_price_data(self):
+        # Dynamically fetches selling price data
+        return self._givens.selling_prices_df[self._givens.selling_prices_df['server_generation'] == self.generation]
+
+    @property
+    def capacity(self):
+        return self.server_data['capacity']
+
+    @property
+    def slots_needed(self):
+        return self.server_data['slots_size']
+
+    @property
+    def energy_consumption(self):
+        return self.server_data['energy_consumption']
+
+    @property
+    def purchase_price(self):
+        return self.server_data['purchase_price']
+
+    @property
+    def life_expectancy(self):
+        return self.server_data['life_expectancy']
+
+    @property
+    def cost_of_moving(self):
+        return self.server_data['cost_of_moving']
+
+    @property
+    def maintenance_fee(self):
+        return self.server_data['average_maintenance_fee']
+
+    @property
+    def selling_price(self):
+        # Dynamic fetching based on latency sensitivity
+        price_row = self.selling_price_data[self.selling_price_data['latency_sensitivity'] == self.latency_sensitivity]
+        return price_row['selling_price'].iloc[0] if not price_row.empty else None
 
     def age_server(self):
         if self.deployed:
@@ -40,6 +66,8 @@ class Server:
 
     def deploy(self):
         self.deployed = True
+        self.remaining_life = self.life_expectancy
+        self.operational_time = 0
 
     def decommission(self):
         self.deployed = False
@@ -54,148 +82,144 @@ class Server:
     def update(self):
         self.update_life(1)
 
-
 class DataCenter:
     def __init__(self, givens, identifier):
-        self.datacenters_df = givens.datacenters_df
-        datacenter_data = self.datacenters_df[self.datacenters_df['datacenter_id'] == identifier].iloc[0]
+        self._givens = givens
         self.identifier = identifier
-        self.slots_capacity = datacenter_data['slots_capacity']
-        self.filled_slots = 0
-        self.empty_slots = self.slots_capacity
-        self.cost_of_energy = datacenter_data['cost_of_energy']
-        self.latency_sensitivity = datacenter_data['latency_sensitivity']
+        self.datacenter_data = self._givens.datacenters_df[self._givens.datacenters_df['datacenter_id'] == identifier].iloc[0]
         self.servers = []  # List of Server objects
+
+    @property
+    def slots_capacity(self):
+        return self.datacenter_data['slots_capacity']
+
+    @property
+    def cost_of_energy(self):
+        return self.datacenter_data['cost_of_energy']
+
+    @property
+    def latency_sensitivity(self):
+        return self.datacenter_data['latency_sensitivity']
+
+    @property
+    def filled_slots(self):
+        return sum(server.slots_needed for server in self.servers if server.deployed)
+
+    @property
+    def empty_slots(self):
+        return self.slots_capacity - self.filled_slots
 
     def add_server(self, server):
         if self.can_add_server(server):
             self.servers.append(server)
             server.deploy()
-            self.filled_slots += server.slots_needed
-            self.empty_slots = self.slots_capacity - self.filled_slots
             print(f"Server {server.generation} added to {self.identifier}")
         else:
             print("Not enough slots to add this server")
+
+    def dismiss_servers(self):
+        """ Method to remove servers that are no longer operational due to end of life. """
+        for server in list(self.servers):
+            if server.remaining_life <= 0:
+                self.remove_server(server)
 
     def remove_server(self, server):
         if server in self.servers:
             self.servers.remove(server)
             server.decommission()
-            self.filled_slots -= server.slots_needed
-            self.empty_slots = self.slots_capacity - self.filled_slots
             print(f"Server {server.generation} removed from {self.identifier}")
 
     def can_add_server(self, server):
-        total_slots_used = sum(s.slots_needed for s in self.servers if s.deployed)
-        return total_slots_used + server.slots_needed <= self.slots_capacity
+        return self.empty_slots >= server.slots_needed
 
     def simulate_time_step(self):
         for server in self.servers:
             server.age_server()
 
+    def __str__(self):
+        return f"DataCenter {self.identifier}: Capacity {self.slots_capacity}, Empty Slots {self.empty_slots}"
+
+
 class Inventory:
     def __init__(self, givens):
-        # Loading the data might typically happen outside of this class, but we include it here for completeness
-        self.datacenters_df = givens.datacenters_df
-        self.servers_df = givens.servers_df
-        self.selling_prices_df = givens.selling_prices_df
-        self.datacenters = [DataCenter(givens, dc) for dc in self.datacenters_df['datacenter_id']]
-        self.filled_slots = 0
-        self.empty_slots = sum(dc.slots_capacity for dc in self.datacenters)
-        self.servers = []  # List of all servers in all datacenters
+        self._givens = givens
+        self.datacenters = [DataCenter(givens, dc_id) for dc_id in self._givens.datacenters_df['datacenter_id']]
 
     def update_servers(self):
-        # This method would be used to sync servers across datacenters if needed
-        self.update_end_of_life_servers()
-        for dc in self.datacenters:
-            for server in dc.servers:
-                if server not in self.servers:
-                    self.servers.append(server)
-    
-    def update_end_of_life_servers(self):
-        # Decommission servers that have reached the end of their life expectancy
-        for server in self.servers:
-            if server.remaining_life <= 0:
-                server.decommission()
-    
+        """ Synchronizes the state of all servers across datacenters, checking end-of-life and updating capacities. """
+        for datacenter in self.datacenters:
+            for server in datacenter.servers[:]:  # Copy to avoid modification during iteration
+                if server.remaining_life <= 0:
+                    datacenter.remove_server(server)
+                else:
+                    server.update()
+
     def simulate_time_step_servers(self):
-        for server in self.servers:
-            server.update()
+        """ Advances the simulation by one time step for each server. """
+        for datacenter in self.datacenters:
+            datacenter.simulate_time_step()
 
     def get_datacenter_by_id(self, identifier):
-        # Retrieve a datacenter by its ID
-        for dc in self.datacenters:
-            if dc.identifier == identifier:
-                return dc
-        return None
+        """ Returns the datacenter object by its identifier. """
+        return next((dc for dc in self.datacenters if dc.identifier == identifier), None)
 
-    def get_server_by_generation(self, generation):
-        # Retrieve a server by its generation
-        for server in self.servers:
-            if server.generation == generation:
-                return server
-        return None
+    def get_total_costs(self):
+        """ Aggregates cost metrics across all datacenters. """
+        energy_cost = sum(dc.get_total_energy_cost() for dc in self.datacenters)
+        maintenance_cost = sum(dc.get_total_maintenance_cost() for dc in self.datacenters)
+        purchase_cost = sum(dc.get_total_purchase_cost() for dc in self.datacenters)
+        moving_cost = sum(dc.get_total_moving_cost() for dc in self.datacenters)
+        return {
+            'energy_cost': energy_cost,
+            'maintenance_cost': maintenance_cost,
+            'purchase_cost': purchase_cost,
+            'moving_cost': moving_cost
+        }
 
-    def get_total_energy_cost(self):
-        # Calculate total energy cost across all datacenters
-        total_cost = 0
-        for dc in self.datacenters:
-            for server in dc.servers:
-                if server.deployed:
-                    total_cost += dc.cost_of_energy * server.energy_consumption
-        return total_cost
-
-    def get_total_maintenance_cost(self):
-        # Calculate total maintenance cost for all deployed servers
-        total_cost = 0
-        for server in self.servers:
-            if server.deployed:
-                total_cost += server.maintenance_fee
-        return total_cost
-
-    def get_total_purchase_cost(self):
-        # Calculate total purchase cost for all deployed servers
-        total_cost = 0
-        for server in self.servers:
-            if server.deployed:
-                total_cost += server.purchase_price
-        return total_cost
-
-    def get_total_moving_cost(self):
-        # Calculate total moving cost for all moved servers
-        total_cost = 0
-        for server in self.servers:
-            if server.deployed and server.moved_this_step:
-                total_cost += server.cost_of_moving
-        return total_cost
     def get_aggregated_server_capacities(self):
-        # Aggregate server capacities by generation and latency sensitivity
+        """ Aggregates server capacities by server generation across all datacenters. """
         capacity_data = []
         for dc in self.datacenters:
             for server in dc.servers:
                 if server.deployed:
                     capacity_data.append({
                         'server_generation': server.generation,
-                        'latency_sensitivity': server.latency_sensitivity,
                         'capacity': server.capacity
                     })
-
         df = pd.DataFrame(capacity_data)
         if not df.empty:
-            return df.groupby(['server_generation', 'latency_sensitivity'])['capacity'].sum().unstack(fill_value=0)
+            aggregated = df.groupby('server_generation')['capacity'].sum()
+            return aggregated.to_frame('capacity')  # Convert to DataFrame explicitly
         else:
-            return pd.DataFrame()
+            return pd.DataFrame(columns=['capacity'])  # Ensure it's always a DataFrame
+
+
+
+    def __str__(self):
+        """ Provides a string representation of the inventory for debugging purposes. """
+        return f"Inventory with Datacenters: {[dc.identifier for dc in self.datacenters]}"
 
 class ProblemData:
-    # Constructor that uses load_problem_data to load the data from the csv files
     def __init__(self):
         self.datacenters_df, self.servers_df, self.selling_prices_df = load_problem_data_without_demand()
+
+    def __str__(self):
+        return f"ProblemData: {len(self.datacenters_df)} datacenters, {len(self.servers_df)} servers, {len(self.selling_prices_df)} selling prices"
 
 class InputDemandDataSample:
     def __init__(self):
         self.demand_data_df = load_demand()
-        
+
+    def __str__(self):
+        return f"InputDemandDataSample: {len(self.demand_data_df)} rows of demand data"
+
 class InputDemandDataActual:
     def __init__(self, sample_data=InputDemandDataSample(), seed=None):
         np.random.seed(seed)
-        self.demand_data_df = get_actual_demand(sample_data.demand_data_df)
+        self.demand_data_df = self.adjust_demand_with_hackathon_method(sample_data.demand_data_df)
+
+    def adjust_demand_with_hackathon_method(self, demand_df):
+        return get_actual_demand(demand_df)
+
+    def __str__(self):
+        return f"InputDemandDataActual: {len(self.demand_data_df)} rows of adjusted demand data"

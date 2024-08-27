@@ -11,8 +11,14 @@ for seed in seeds:
     if (x == 0):
         break
     givens = ProblemData()
-    input_actual = InputDemandDataActual(seed=seed)
-    solution_json = app.solution_function(givens, input_actual, time_steps=4, debugging=True)
+    sample_demand = InputDemandDataSample()
+    actual_demand = InputDemandDataActual(sample_data=sample_demand, seed=42)
+    inventory = Inventory(givens)
+    print(givens)
+    print(sample_demand)
+    print(actual_demand)
+    print(inventory)
+    solution_json = app.solution_function(givens, actual_demand, time_steps=4, debugging=True)
     # SAVE YOUR SOLUTION
     save_solution(solution_json, f'{outputdirectory}/{seed}.json')
     x -= 1
