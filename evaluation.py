@@ -75,6 +75,27 @@ def solution_data_preparation(solution, servers, datacenters, selling_prices):
     '''
     # CHECK DATACENTERS AND SERVERS NAMES
     solution = check_datacenters_servers_generation(solution)
+
+    '''
+    #Important
+
+    @Sai Surisetti - Solution Data Preparation - Observations:
+
+    **** Important ****
+
+    In scoring.py, we passed in the solution, demand, datacenters, servers, selling_prices 
+    as pandas dataframes to evaluation_function in evaluation.py ALL SEPERATELY,
+    but in evaluation.py, it went through 'get_evaluation' function and then 'solution_data_preparation' function.
+
+    In the 'solution_data_preparation' function, we are MERGING THE SOLUTION WITH SERVERS DATA FRAME dataframe
+    after checking the data format and actions.
+
+    OUR NEW DATAFRAME: 'solution' NOW HAS THE FOLLOWING COLUMNS: time_step, datacenter_id, server_generation, server_id, action.
+
+    **** Important ****
+
+    '''
+
     # ADD PROBLEM DATA
     solution = solution.merge(servers, on='server_generation', how='left')
     solution = solution.merge(datacenters, on='datacenter_id', how='left')
@@ -114,9 +135,9 @@ I am assuming, it takes care of the following:
 
 Q: Where are we checking whether they are ONLY buying servers at release time (time-step where you are allowed to purchase servers)?
 
-... Continue from here (August 26, 2024 - 6:09 PM)
-
 '''
+
+# Dataframe Columns: time_step, datacenter_id, server_generation, server_id, action
 
 def check_datacenters_servers_generation(solution):
     # CHECK THAT DATA-CENTERS AND SERVER GENERATIONS ARE NAMED AS REQUESTED
@@ -128,7 +149,20 @@ def check_datacenters_servers_generation(solution):
 
 def check_server_usage_by_release_time(solution):
     # CHECK THAT ONLY THE SERVERS AVAILABLE FOR PURCHASE AT A CERTAIN TIME-STEP ARE USED AT THAT TIME-STEP
+
+    # solution's Dataframe Columns: time_step, datacenter_id, server_generation, server_id, action
     solution['rt_is_fine'] = solution.apply(check_release_time, axis=1)
+
+    '''
+
+    @Sai Surisetti - Violation Check Function - Observations:
+
+    GThe line of code solution['rt_is_fine'] = solution.apply(check_release_time, axis=1) adds a new column 
+    named rt_is_fine to the solution DataFrame. This new column is *** populated by applying the check_release_time function 
+    to each row of the DataFrame ***. The apply method is used with the parameter axis=1, which indicates that the function 
+    should be applied to each row individually.
+    
+    '''
     solution = solution[(solution['rt_is_fine'] != 'buy') | solution['rt_is_fine']]
     solution = solution.drop(columns='rt_is_fine', inplace=False)
     return solution
@@ -145,11 +179,30 @@ Snippet from the function:
     solution = solution[(solution['rt_is_fine'] != 'buy') | solution['rt_is_fine']]
     solution = solution.drop(columns='rt_is_fine', inplace=False)
 
+{"time_step": 1, "datacenter_id": "DC1", "server_generation": "CPU.S1", "server_id": "", "action": "buy"}
+
 '''
 
 def check_release_time(x):
     # HELPER FUNCTION TO CHECK THE CORRECT SERVER USAGE BY TIME-STEP
+    # solution's Dataframe Columns: time_step, datacenter_id, server_generation, server_id, action
     rt = eval(x['release_time'])
+
+    '''
+
+    #Important
+
+    @Sai Surisetti - Violation Check Function - Observations:
+
+    Evaluating release_time: The line rt = eval(x['release_time']) evaluates the release_time 
+    string in the row x and converts it into a Python object (likely a list or another iterable). 
+    This assumes that x['release_time'] contains a string representation of a list or another iterable.
+
+    *** The reason why x has 'release_time' column is because we merged the solution with the servers
+    dataframe in the solution_data_preparation function. ***
+
+    '''
+
     ts = x['time_step']
     if ts >= min(rt) and ts <= max(rt):
         return True
@@ -185,6 +238,8 @@ def change_selling_prices_format(selling_prices):
     selling_prices.columns = selling_prices.columns.droplevel(0)
     return selling_prices
 
+# Dataframe Columns: time_step, datacenter_id, server_generation, server_id, action
+
 def get_actual_demand(demand):
     # CALCULATE THE ACTUAL DEMAND AT TIME-STEP t
     actual_demand = []
@@ -205,10 +260,20 @@ def get_actual_demand(demand):
     actual_demand.columns = actual_demand.columns.droplevel(0)
     actual_demand = actual_demand.loc[actual_demand[get_known('latency_sensitivity')].sum(axis=1) > 0]
     actual_demand = actual_demand.reset_index(['time_step', 'server_generation'], col_level=1, inplace=False)
+    # if debuggingmode:
+    #     print(actual_demand)
     return actual_demand
 
 def get_random_walk(n, mu, sigma):
     # HELPER FUNCTION TO GET A RANDOM WALK TO CHANGE THE DEMAND PATTERN
+    '''
+    
+    @Sai Surisetti - Random Walk - Note:
+
+    Seed has been set globally before this function is called in the evaluation_function function.
+    The Seed was set according to "seed" from the <seed>.json passed in from the evaluation_function function.
+
+    '''
     r = np.random.normal(mu, sigma, n)
     ts = np.empty(n)
     ts[0] = r[0]
@@ -383,8 +448,20 @@ def get_evaluation(solution,
 
     selling_prices = change_selling_prices_format(selling_prices)
 
+    if (debuggingmode):
+        print("Solution before getting the actual demand")
+        print(solution)
+        print("Demand before getting the actual demand")
+        print(demand)
+
     # DEMAND DATA PREPARATION
     demand = get_actual_demand(demand)
+
+    if (debuggingmode):
+        print("Solution after getting the actual demand")
+        print(solution)
+        print("Demand after getting the actual demand")
+        print(demand)
 
     OBJECTIVE = 0
     FLEET = pd.DataFrame()
@@ -454,7 +531,11 @@ def evaluation_function(solution,
                         selling_prices,
                         time_steps=get_known('time_steps'), 
                         seed=None,
-                        verbose=0):
+                        verbose=0,
+                        debugging=False):
+    
+    global debuggingmode
+    debuggingmode = debugging
 
     """
     Evaluate a solution for the Tech Arena Phase 1 problem.
@@ -493,6 +574,17 @@ def evaluation_function(solution,
     """
 
     # SET RANDOM SEED
+    '''
+
+    @Sai Surisetti - Seed set globally for the np library for this program.
+
+    Setting the random seed with np.random.seed(122) before calling the function 
+    get_random_walk (or any other function that generates random numbers using NumPy's random functions) will 
+    ensure that the random values produced by np.random.normal(mu, sigma, n) in this context are reproducible. 
+    This means that every time you run your code with the seed set to 122, 
+    the sequence of random numbers (and consequently the generated random walk ts) will be the same.
+
+    '''
     np.random.seed(seed)
     # EVALUATE SOLUTION
     try:

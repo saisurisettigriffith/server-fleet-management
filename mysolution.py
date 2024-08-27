@@ -1,25 +1,16 @@
-import numpy as np
-import pandas as pd
 from seeds import known_seeds
-from utils import save_solution
-from evaluation import get_actual_demand
+from utils import load_problem_data, save_solution
+import application as app
 
-def get_my_solution(d):
-    # This is just a placeholder.
-    print(d)
-    
-    return [{}]
-
+outputdirectory = "output_actual/"
 seeds = known_seeds('training')
 
-demand = pd.read_csv('./data/demand.csv')
-
+x = 1
 for seed in seeds:
-    # SET THE RANDOM SEED
-    np.random.seed(seed)
-    # GET THE DEMAND
-    actual_demand = get_actual_demand(demand)
-    # CALL YOUR APPROACH HERE
-    solution = get_my_solution(actual_demand)
+    if (x == 0):
+        break
+    demand, datacenters, servers, selling_prices = load_problem_data()
+    solution_json = app.solution_function(demand, datacenters, servers, selling_prices, seed, debugging=True)
     # SAVE YOUR SOLUTION
-    save_solution(solution, f'output_actual/{seed}.json')
+    save_solution(solution_json, f'{outputdirectory}/{seed}.json')
+    x -= 1

@@ -18,7 +18,7 @@ USAGE IMPORTANT!!!
 
 '''
 
-outputdirectory = outputdirectory_if_actual
+outputdirectory = outputdirectory_if_sample
 
 json_files = [f for f in os.listdir(outputdirectory) if f.endswith('.json')]
 
@@ -30,9 +30,14 @@ solution = load_solution(os.path.join(outputdirectory, f'{filenumber}.json')) # 
 
 demand, datacenters, servers, selling_prices = load_problem_data() # ALL THESE VARIABLE ARE PANDAS DATAFRAMES CREATED FROM .CSV FILES IN ./DATA/ FOLDER
 
-score = evaluation_function(solution, demand, datacenters, servers, selling_prices, seed=filenumber) # SCORE IS ANSWER, ENTRY POINT STAGE 1
+# Print solution
+#print(solution)
+
+
+score = evaluation_function(solution, demand, datacenters, servers, selling_prices, seed=filenumber, debugging=True) # SCORE IS ANSWER, ENTRY POINT STAGE 1
 
 '''
+
 def evaluation_function(solution, 
                         demand,
                         datacenters,
@@ -41,6 +46,7 @@ def evaluation_function(solution,
                         time_steps=get_known('time_steps'), <--- This is not needed, it is already defined in evaluation.py, but you can change it if you want.
                         seed=None,
                         verbose=0): <--- This is not needed, it is already defined in evaluation.py, but you can change it if you want. However, we won't be needing this.
+
 
 Recap: our solution "123.json", ./data/demand.csv, ./data/datacenters.csv, ./data/servers.csv, ./data/selling_prices.csv are all converted into pandas dataframes...
 ... and passed in as solution, demand, datacenters, servers, selling_prices RESPECTIVELY to evaluation_function in evaluation.py.
