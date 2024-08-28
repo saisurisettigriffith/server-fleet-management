@@ -3,11 +3,12 @@ from utils import *
 from evaluation import *
 
 class Server:
-    def __init__(self, givens, generation, latency, data_center):
+    def __init__(self, givens, generation, latency, data_center, identifier):
         self.generation = generation
         self.latency_sensitivity = latency
         self.data_center = data_center
         self.moved_this_step = False
+        self.identifier = identifier
         # Using properties to dynamically fetch data when needed
         self._givens = givens
 
@@ -129,12 +130,82 @@ class DataCenter:
     def can_add_server(self, server):
         return self.empty_slots >= server.slots_needed
 
+    def has_capacity_for_servers(self, required_slots):
+        """
+        Check if the data center has enough empty slots to accommodate a given number of slots.
+        
+        Args:
+            required_slots (int): Number of slots required for new servers.
+
+        Returns:
+            bool: True if there is enough capacity, False otherwise.
+        """
+        return self.empty_slots >= required_slots
+
     def simulate_time_step(self):
         for server in self.servers:
             server.age_server()
 
     def __str__(self):
         return f"DataCenter {self.identifier}: Capacity {self.slots_capacity}, Empty Slots {self.empty_slots}"
+
+
+# class DataCenter:
+#     def __init__(self, givens, identifier):
+#         self._givens = givens
+#         self.identifier = identifier
+#         self.datacenter_data = self._givens.datacenters_df[self._givens.datacenters_df['datacenter_id'] == identifier].iloc[0]
+#         self.servers = []  # List of Server objects
+
+#     @property
+#     def slots_capacity(self):
+#         return self.datacenter_data['slots_capacity']
+
+#     @property
+#     def cost_of_energy(self):
+#         return self.datacenter_data['cost_of_energy']
+
+#     @property
+#     def latency_sensitivity(self):
+#         return self.datacenter_data['latency_sensitivity']
+
+#     @property
+#     def filled_slots(self):
+#         return sum(server.slots_needed for server in self.servers if server.deployed)
+
+#     @property
+#     def empty_slots(self):
+#         return self.slots_capacity - self.filled_slots
+
+#     def add_server(self, server):
+#         if self.can_add_server(server):
+#             self.servers.append(server)
+#             server.deploy()
+#             print(f"Server {server.generation} added to {self.identifier}")
+#         else:
+#             print("Not enough slots to add this server")
+
+#     def dismiss_servers(self):
+#         """ Method to remove servers that are no longer operational due to end of life. """
+#         for server in list(self.servers):
+#             if server.remaining_life <= 0:
+#                 self.remove_server(server)
+
+#     def remove_server(self, server):
+#         if server in self.servers:
+#             self.servers.remove(server)
+#             server.decommission()
+#             print(f"Server {server.generation} removed from {self.identifier}")
+
+#     def can_add_server(self, server):
+#         return self.empty_slots >= server.slots_needed
+
+#     def simulate_time_step(self):
+#         for server in self.servers:
+#             server.age_server()
+
+#     def __str__(self):
+#         return f"DataCenter {self.identifier}: Capacity {self.slots_capacity}, Empty Slots {self.empty_slots}"
 
 
 class Inventory:

@@ -1,9 +1,6 @@
 Filename: Classes.py
 Path: Classes.py
 
-import utils as utl
-import application as app
-import seeds as sds
 import pandas as pd
 from utils import *
 from evaluation import *
@@ -13,6 +10,7 @@ class Server:
         self.generation = generation
         self.latency_sensitivity = latency
         self.data_center = data_center
+        self.moved_this_step = False
         # Using properties to dynamically fetch data when needed
         self._givens = givens
 
@@ -277,7 +275,7 @@ for seed in seeds:
     print(sample_demand)
     print(actual_demand)
     print(inventory)
-    solution_json = app.solution_function(givens, actual_demand, time_steps=4, debugging=True)
+    solution_json = app.solution_function(givens, actual_demand, time_steps=3, debugging=True)
     # SAVE YOUR SOLUTION
     save_solution(solution_json, f'{outputdirectory}/{seed}.json')
     x -= 1
@@ -290,62 +288,16 @@ import numpy as np
 import pandas as pd
 from Classes import *
 from scipy.stats import truncweibull_min
+import pulp
 
 class Simulation:
     def __init__(self, givens, input_actual, time_steps, debugging):
         self.givens = givens
         self.input_actual = input_actual.demand_data_df
-        # # Check if latency_sensitivity is the name of the index and reset it
-        # if self.input_actual.index.name == 'latency_sensitivity':
-        #     self.input_actual.reset_index(drop=True, inplace=True)
-        
         self.inventory = Inventory(givens)
         self.time_steps = time_steps
         self.debugging = debugging
-        self.failure_rates = self.sample_failure_rates()  # Sample once and use throughout the simulation
-        self.hello = self.print_available_keys()
-
-        self.inventory = Inventory(givens)
-        self.time_steps = time_steps
-        self.debugging = debugging
-        self.failure_rates = self.sample_failure_rates()  # Sample once and use throughout the simulation
-        self.hello = self.print_available_keys()
-
-    def get_demand(self, generation, latency_sensitivity):
-        # Accessing demand data based on server generation and a specific latency sensitivity
-        try:
-            current_demand = self.input_actual.loc[
-                self.input_actual['server_generation'] == generation, latency_sensitivity
-            ].sum()
-            return current_demand
-        except KeyError as e:
-            print(f"Column not found: {latency_sensitivity}, available columns: {self.input_actual.columns}")
-            return 0
-
-
-    def print_available_keys(self):
-        print("Available keys in failure_rates:", self.failure_rates.keys())
-        return True
-
-    def sample_failure_rates(self):
-        # Sampling failure rates for each server type and generation
-        rates = {}
-        for generation in self.givens.servers_df['server_generation'].unique():
-            rates[generation] = truncweibull_min.rvs(0.3, 0.05, 0.1, size=1).item()
-        return rates
-
-    def adjust_capacity_by_failure_rate(self, capacity, generation):
-        # Use the pre-sampled failure rate
-        failure_rate = self.failure_rates[generation]
-        adjusted_capacity = int(capacity * (1 - failure_rate))
-        if self.debugging:
-            print(f"Adjusting capacity for {generation}: original={capacity}, adjusted={adjusted_capacity}, failure_rate={failure_rate}")
-        return adjusted_capacity
-
-    def print_data(self):
-        print("\'input_actual\' Data:")
-        print(self.input_actual)
-        print(self.givens)
+        self.failure_rates = self.sample_failure_rates()
 
     def start_simulation(self):
         self.print_data()
@@ -366,13 +318,72 @@ class Simulation:
             print(self.adjusted_capacities)
         else:
             print("No capacities to adjust.")
+        
+        self.current_normalized_lifespan = self.calculate_normalized_lifespan()
+        print(f"Normalized Lifespan at time step {current_time_step}: {self.current_normalized_lifespan}")
+        self.current_profit = self.calculate_profit()
+        print(f"Profit at time step {current_time_step}: {self.current_profit}")
+        self.current_utilization = self.calculate_utilization(current_time_step)
+        print(f"Utilization at time step {current_time_step}: {self.current_utilization}")
 
-        self.handle_demand(current_time_step)
-        print(f"Utilization: {self.calculate_utilization(current_time_step)}")
-        print(f"Normalized Lifespan: {self.calculate_normalized_lifespan()}")
-        print(f"Profit: {self.calculate_profit()}")
-        print(f"Utilization at time step {current_time_step}: {self.calculate_utilization(current_time_step)}")
-        self.dismiss_servers()
+        # self.handle_demand(current_time_step)
+        # print(f"Normalized Lifespan: {self.calculate_normalized_lifespan()}")
+        # print(f"Profit: {self.calculate_profit()}")
+        # print(f"Utilization at time step {current_time_step}: {self.calculate_utilization(current_time_step)}")
+        # self.dismiss_servers()
+
+    def make_a_choice(self, current_time_step):
+        # Choice 1: Dynamic Linear Programming, Dynamic Mixed Integer Linear Programming, Optimization, or heuristic logic, or greedy method to make a choice
+        # Choice 2: Reinforcement Learning with other methods.
+        # If reinforcement learning is used, everything needs to be carefully done.
+        # A data structure to store the action is needed for either choice.
+        print("Making a choice...")
+    
+    # This is just an example and should be replaced with non-brute force logic
+    def handle_demand(self, current_time_step):
+        demand_data = self.input_actual[self.input_actual['time_step'] == current_time_step]
+        for index, demand in demand_data.iterrows():
+            for latency_sensitivity in ['high', 'low', 'medium']:
+                needed_capacity = demand[latency_sensitivity]
+                available_servers = [
+                    server for dc in self.inventory.datacenters for server in dc.servers
+                    if server.generation == demand['server_generation'] and server.latency_sensitivity == latency_sensitivity
+                ]
+                total_available_capacity = sum(server.capacity for server in available_servers)
+
+                if needed_capacity > total_available_capacity:
+                    self.buy_servers(demand['server_generation'], latency_sensitivity, needed_capacity - total_available_capacity)
+
+    def get_demand(self, generation, latency_sensitivity):
+        # Accessing demand data based on server generation and a specific latency sensitivity
+        try:
+            current_demand = self.input_actual.loc[
+                self.input_actual['server_generation'] == generation, latency_sensitivity
+            ].sum()
+            return current_demand
+        except KeyError as e:
+            print(f"Column not found: {latency_sensitivity}, available columns: {self.input_actual.columns}")
+            return 0
+
+    def sample_failure_rates(self):
+        # Sampling failure rates for each server type and generation
+        rates = {}
+        for generation in self.givens.servers_df['server_generation'].unique():
+            rates[generation] = truncweibull_min.rvs(0.3, 0.05, 0.1, size=1).item()
+        return rates
+
+    def adjust_capacity_by_failure_rate(self, capacity, generation):
+        # Use the pre-sampled failure rate
+        failure_rate = self.failure_rates[generation]
+        adjusted_capacity = int(capacity * (1 - failure_rate))
+        if self.debugging:
+            print(f"Adjusting capacity for {generation}: original={capacity}, adjusted={adjusted_capacity}, failure_rate={failure_rate}")
+        return adjusted_capacity
+
+    def print_data(self):
+        print("\'input_actual\' Data:")
+        print(self.input_actual)
+        print(self.givens)
 
     ### b. The servers' normalized lifespan \( L \)
 
@@ -428,23 +439,6 @@ class Simulation:
         # \alpha(x_s) = b_s \times \left[ 1 + \frac{1.5 x_s}{\hat{x}_s} \times \log_2\left(\frac{1.5 x_s}{\hat{x}_s}\right) \right] \tag{4.2.2}
         # \]
 
-    def get_demand(self, generation, latency_sensitivity):
-        try:
-            filtered_data = self.input_actual[
-                (self.input_actual['server_generation'] == generation) & (self.input_actual[latency_sensitivity])
-            ]
-            print("Filtered Data:", filtered_data)  # Debugging line to see what's being filtered
-
-            # Attempt to convert the relevant column to float, sum it, and ensure no strings are present
-            demand_sum = pd.to_numeric(filtered_data, errors='coerce').sum()
-            print("Summed Demand:", demand_sum)  # Debugging line to see the summed demand
-
-            return demand_sum
-        except Exception as e:
-            print(f"An error occurred in get_demand: {str(e)}")
-            return 0  # Return 0 demand in case of any error to prevent further issues
-
-
     def calculate_profit(self):
         total_revenue = 0
         total_cost = 0
@@ -469,21 +463,23 @@ class Simulation:
         profit = total_revenue - total_cost
         return profit
 
-
-
-    def handle_demand(self, current_time_step):
-        demand_data = self.input_actual[self.input_actual['time_step'] == current_time_step]
-        for index, demand in demand_data.iterrows():
-            for latency_sensitivity in ['high', 'low', 'medium']:
-                needed_capacity = demand[latency_sensitivity]
-                available_servers = [
-                    server for dc in self.inventory.datacenters for server in dc.servers
-                    if server.generation == demand['server_generation'] and server.latency_sensitivity == latency_sensitivity
-                ]
-                total_available_capacity = sum(server.capacity for server in available_servers)
-
-                if needed_capacity > total_available_capacity:
-                    self.buy_servers(demand['server_generation'], latency_sensitivity, needed_capacity - total_available_capacity)
+    def calculate_utilization(self, current_time_step):
+        total_capacity = 0
+        total_demand_met = 0
+        for datacenter in self.inventory.datacenters:
+            for server in datacenter.servers:
+                if server.deployed:
+                    latency_column = server.latency_sensitivity
+                    demand = self.input_actual.loc[
+                        (self.input_actual['time_step'] == current_time_step) &
+                        (self.input_actual['server_generation'] == server.generation), latency_column].sum()
+                    met_demand = min(demand, server.capacity)
+                    total_demand_met += met_demand
+                    total_capacity += server.capacity
+        if total_capacity > 0:
+            return total_demand_met / total_capacity
+        else:
+            return 0
 
     def buy_servers(self, generation, latency_sensitivity, additional_capacity_needed):
         print(f"Trying to meet additional demand of {additional_capacity_needed} with new servers.")
@@ -498,6 +494,7 @@ class Simulation:
                 if datacenter.can_add_server(new_server):
                     datacenter.add_server(new_server)
                     additional_capacity_needed -= new_server.capacity
+                    additional_capacity_needed = max(0, additional_capacity_needed)
                     purchase_count += 1
                     print(f"Added one {generation} server to {datacenter.identifier}; remaining demand: {additional_capacity_needed}.")
                 if additional_capacity_needed <= 0:
@@ -524,25 +521,6 @@ class Simulation:
     # \[
     # D_{i,g,t} = D_{i,g,t-1} + \mathcal{N} \tag{2.1}
     # \]
-
-    def calculate_utilization(self, current_time_step):
-        total_capacity = 0
-        total_demand_met = 0
-        for datacenter in self.inventory.datacenters:
-            for server in datacenter.servers:
-                if server.deployed:
-                    latency_column = server.latency_sensitivity
-                    demand = self.input_actual.loc[
-                        (self.input_actual['time_step'] == current_time_step) &
-                        (self.input_actual['server_generation'] == server.generation), latency_column].sum()
-                    met_demand = min(demand, server.capacity)
-                    total_demand_met += met_demand
-                    total_capacity += server.capacity
-        if total_capacity > 0:
-            return total_demand_met / total_capacity
-        else:
-            return 0
-
 
 def solution_function(givens, input_actual, time_steps=168, debugging=False):
     simulation = Simulation(givens, input_actual, time_steps, debugging)

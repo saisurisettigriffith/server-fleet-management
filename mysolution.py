@@ -18,7 +18,7 @@ for seed in seeds:
     print(sample_demand)
     print(actual_demand)
     print(inventory)
-    solution_json = app.solution_function(givens, actual_demand, time_steps=3, debugging=True)
+    solution_json = app.solution_function(givens, actual_demand, time_steps=5, debugging=True)
     # SAVE YOUR SOLUTION
     save_solution(solution_json, f'{outputdirectory}/{seed}.json')
     x -= 1
