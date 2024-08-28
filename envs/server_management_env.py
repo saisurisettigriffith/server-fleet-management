@@ -42,68 +42,6 @@ latency_sensitivity  time_step server_generation   high    low  medium
 4                            3            CPU.S1  17781  54178   16664
 IMPORTANT: The InputDemandDataActual AND YOUR ORIGINAL COPIES should not be changed BECAUSE THE AGENT NEEDS TO BE TRAINED ON THE ORIGINAL INPUT FORMAT HOW THEY APPEAR.
 '''
-
-# import gymnasium as gym
-# from gymnasium import spaces
-# import numpy as np
-# from Classes import *
-
-# class ServerManagementEnv(gym.Env):
-#     def __init__(self, givens, demand_data):
-#         super().__init__()
-#         self.givens = givens
-#         self.demand_data = demand_data.demand_data_df
-#         self.inventory = Inventory(givens)
-
-#         num_data_centers = len(self.inventory.datacenters)
-#         num_server_types = len(self.givens.servers_df['server_type'].unique())
-#         num_action_types = 3  # e.g., add, remove, move
-#         max_quantity = 10  # Max units per action
-
-#         self.action_space = spaces.MultiDiscrete([num_data_centers, num_server_types, num_action_types, max_quantity])
-#         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(10,), dtype=np.float32)
-#         self.state = self.reset()
-
-#     def reset(self, **kwargs):
-#         self.state = self.initialize_environment_state()
-#         return self.convert_state_to_observation(self.state)
-
-#     def convert_state_to_observation(self, state):
-#         return np.array([
-#             state['feature1'],
-#             state['feature2'],
-#             # Ensure all dummy features are included to match the expected shape
-#             np.random.random(), np.random.random(), np.random.random(),
-#             np.random.random(), np.random.random(), np.random.random(),
-#             np.random.random(), np.random.random()
-#         ])
-
-#     def step(self, action):
-#         self._apply_action(action)
-#         self.state = self.update_state()
-#         observation = self.convert_state_to_observation(self.state)
-#         reward = self.calculate_reward()
-#         done = self._check_done()
-#         info = {}
-#         return observation, reward, done, info
-
-
-#     def _apply_action(self, action):
-#         dc_id, server_type, action_type, quantity = action
-#         if action_type == 0:
-#             self.inventory.datacenters[dc_id].deploy_server(server_type, quantity)
-#         elif action_type == 1:
-#             self.inventory.datacenters[dc_id].power_down_server(server_type, quantity)
-
-#     def update_state(self):
-#         return {"feature1": np.random.rand(), "feature2": np.random.rand()}
-
-#     def calculate_reward(self):
-#         return -np.random.rand()
-
-#     def _check_done(self):
-#         return np.random.rand() > 0.95
-
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -113,9 +51,12 @@ class ServerManagementEnv(gym.Env):
     def __init__(self, givens, demand_data):
         super().__init__()
         self.givens = givens
-        self.demand_data = demand_data.demand_data_df
+        self.current_time_step = 1
+        self.current_demand_rows = demand_data.demand_data_df[demand_data.demand_data_df['time_step'] == self.current_time_step]
+        print("Printing")
+        print(self.current_demand_rows)
+        print("Printing")
         self.inventory = Inventory(givens)
-
         num_data_centers = len(self.inventory.datacenters)
         num_server_types = len(self.givens.servers_df['server_type'].unique())
         num_action_types = 3  # e.g., add, remove, move
@@ -164,16 +105,20 @@ class ServerManagementEnv(gym.Env):
 
     def step(self, action):
         # Apply the action and update the environment
+        # Currently action it is initiated to 0, 0, 0, 0
         self._apply_action(action)
         self.state = self.update_state()
         observation = self.convert_state_to_observation(self.state)
         reward = self.calculate_reward()
         done = self._check_done()
         info = {}
+        self.current_time_step += 1
         return observation, reward, done, info
 
     def _apply_action(self, action):
+        print("Action: ", action)
         # Detailed logic to apply an action to modify the environment
+        # Currently action is initiated to 0, 0, 0, 0
         dc_id, server_type, action_type, quantity = action
         if action_type == 0:
             self.inventory.datacenters[dc_id].deploy_server(server_type, quantity)
