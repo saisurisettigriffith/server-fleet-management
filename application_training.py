@@ -5,11 +5,25 @@ from Classes import *
 def train_model():
     givens = ProblemData()
     actual_demand = InputDemandDataActual(seed=42)
-    print(actual_demand.demand_data_df.head())
     env = ServerManagementEnv(givens, actual_demand)
+
+    # Using a model to train
     model = PPO('MlpPolicy', env, verbose=1)
-    model.learn(total_timesteps=100)
+
+    obs = env.reset()
+    print("Initial Observation:", obs)
+
+    # Perform multiple steps
+    for _ in range(100):  # Define the number of steps or use a more complex termination condition
+        action = model.predict(obs, deterministic=True)[0]
+        obs, reward, done, info = env.step(action)
+        print(f"Action: {action}, Observation: {obs}, Reward: {reward}, Done: {done}")
+
+        if done:
+            obs = env.reset()  # Reset the environment when a terminal state is reached
+
     model.save("server_management_rl_model")
+    print("Training completed and model saved.")
 
 if __name__ == "__main__":
     print("Training the model...")

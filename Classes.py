@@ -98,6 +98,36 @@ class DataCenter:
         self.datacenter_data = self._givens.datacenters_df[self._givens.datacenters_df['datacenter_id'] == identifier].iloc[0]
         self.servers = []  # List of Server objects
 
+    def deploy_server(self, server_type, quantity):
+        server_info = self._givens.servers_df[self._givens.servers_df['server_type'] == server_type].iloc[0]
+        slots_needed = server_info['slots_size'] * quantity
+        
+        if self.empty_slots >= slots_needed:
+            for _ in range(quantity):
+                new_server = Server(self._givens, server_type, self.datacenter_data['latency_sensitivity'], self, f"{self.identifier}_new_{server_type}")
+                self.servers.append(new_server)
+                new_server.deploy()
+                print(f"Deployed server {server_type} in data center {self.identifier}")
+        else:
+            print(f"Not enough slots to deploy {quantity} servers of type {server_type}. Available slots: {self.empty_slots}, needed: {slots_needed}")
+
+    def power_down_server(self, server_type, quantity):
+        # Filter servers of the specified type that are currently deployed
+        active_servers = [server for server in self.servers if server.type == server_type and server.deployed]
+        
+        # Power down servers up to the specified quantity
+        powered_down_count = 0
+        for server in active_servers:
+            if powered_down_count < quantity:
+                server.decommission()  # Assuming decommission method handles the deactivation
+                powered_down_count += 1
+            else:
+                break
+
+        if powered_down_count < quantity:
+            print(f"Requested to power down {quantity} servers of type {server_type}, but only {powered_down_count} were available.")
+
+
     def summary(self):
         return {
             "total_capacity": sum(server.capacity for server in self.servers),
@@ -240,21 +270,28 @@ class Inventory:
 class ProblemData:
     def __init__(self):
         self.datacenters_df, self.servers_df, self.selling_prices_df = load_problem_data_without_demand()
-        print("Columns and Head of ProblemData datacenters_df: ")
+        print("IMPORTANT: The ProblemData Class should not be changed. It is used to load the data for the problem.")
+        print("Columns and Head of ProblemData: datacenters_df: ")
         print(self.datacenters_df.columns)
         print(self.datacenters_df.head())
-        print("Columns and Head of ProblemData datacenters_df: ")
-        print(self.datacenters_df.columns)
-        print(self.datacenters_df.head())
+        print("Columns and Head of ProblemData: servers_df: ")
+        print(self.servers_df.columns)
+        print(self.servers_df.head())
+        print("Columns and Head of ProblemData: selling_prices_df: ")
+        print(self.selling_prices_df.columns)
+        print(self.selling_prices_df.head())
+        print("IMPORTANT: The ProblemData Class should not be changed. It is used to load the data for the problem.")
 
 class InputDemandDataActual:
     def __init__(self, seed=None):
         np.random.seed(seed)
         self.sample_demand_data_df = load_demand()
         self.demand_data_df = self.adjust_demand_with_hackathon_method(self.sample_demand_data_df)
+        print("IMPORTANT: The InputDemandDataActual AND YOUR ORIGINAL COPIES should not be changed BECAUSE THE AGENT NEEDS TO BE TRAINED ON THE ORIGINAL INPUT FORMAT HOW THEY APPEAR.")
         print("Columns and Head of Hackathon Input Format demand data: ")
         print(self.demand_data_df.columns)
         print(self.demand_data_df.head())
+        print("IMPORTANT: The InputDemandDataActual AND YOUR ORIGINAL COPIES should not be changed BECAUSE THE AGENT NEEDS TO BE TRAINED ON THE ORIGINAL INPUT FORMAT HOW THEY APPEAR.")
         '''
         Logic on the other parts of the project need to be adjusted to understand the format of the Hackathon Input Format demand data.
         This Class or the input data should not be changed.

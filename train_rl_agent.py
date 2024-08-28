@@ -1,4 +1,4 @@
-import gym
+import gymnasium as gym
 from stable_baselines3 import PPO
 from envs.server_management_env import ServerManagementEnv
 
