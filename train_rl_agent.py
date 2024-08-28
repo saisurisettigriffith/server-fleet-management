@@ -3,10 +3,12 @@ from stable_baselines3 import PPO
 from envs.server_management_env import ServerManagementEnv
 
 # Assuming you have already defined or loaded `givens` and `demand_data`
-from your_data_module import givens, demand_data  # Adjust import based on your actual data structure
+from Classes import *
+from application import *
+from mysolution import *
 
 # Create the custom environment
-env = ServerManagementEnv(givens, demand_data)
+env = ServerManagementEnv(givens, actual_demand)
 
 # Create the RL model
 model = PPO('MlpPolicy', env, verbose=1)
@@ -22,8 +24,8 @@ model = PPO.load("server_management_rl_model")
 
 # Evaluate the model
 obs = env.reset()
-for _ in range(1000):  # Run for 1000 steps or as needed
-    action, _states = model.predict(obs)
+for _ in range(1000):  # Run for a number of steps to evaluate performance
+    action, _states = model.predict(obs, deterministic=True)
     obs, rewards, done, info = env.step(action)
     if done:
         obs = env.reset()

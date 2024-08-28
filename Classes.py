@@ -11,6 +11,17 @@ class Server:
         self.identifier = identifier
         # Using properties to dynamically fetch data when needed
         self._givens = givens
+        self.deployed = False
+        self.operational_time = 0
+
+    @property
+    def status(self):
+        return {
+            "type": self.generation,
+            "capacity_used": self.capacity if self.deployed else 0,
+            "uptime": self.operational_time,
+            "latency_sensitivity": self.latency_sensitivity
+        }
 
     @property
     def server_data(self):
@@ -86,6 +97,14 @@ class DataCenter:
         self.identifier = identifier
         self.datacenter_data = self._givens.datacenters_df[self._givens.datacenters_df['datacenter_id'] == identifier].iloc[0]
         self.servers = []  # List of Server objects
+
+    def summary(self):
+        return {
+            "total_capacity": sum(server.capacity for server in self.servers),
+            "available_capacity": sum(server.capacity for server in self.servers if not server.deployed),
+            "energy_cost": self.cost_of_energy,
+            "servers": [server.status for server in self.servers]
+        }
 
     @property
     def slots_capacity(self):
@@ -221,42 +240,26 @@ class Inventory:
 class ProblemData:
     def __init__(self):
         self.datacenters_df, self.servers_df, self.selling_prices_df = load_problem_data_without_demand()
-
-    def __str__(self):
-        return f"ProblemData: {len(self.datacenters_df)} datacenters, {len(self.servers_df)} servers, {len(self.selling_prices_df)} selling prices"
-
-class InputDemandDataSample:
-    def __init__(self):
-        self.demand_data_df = load_demand()
-
-    def __str__(self):
-        return f"InputDemandDataSample: {len(self.demand_data_df)} rows of demand data"
+        print("Columns and Head of ProblemData datacenters_df: ")
+        print(self.datacenters_df.columns)
+        print(self.datacenters_df.head())
+        print("Columns and Head of ProblemData datacenters_df: ")
+        print(self.datacenters_df.columns)
+        print(self.datacenters_df.head())
 
 class InputDemandDataActual:
-    def __init__(self, sample_data=InputDemandDataSample(), seed=None):
+    def __init__(self, seed=None):
         np.random.seed(seed)
-        self.demand_data_df = self.adjust_demand_with_hackathon_method(sample_data.demand_data_df)
+        self.sample_demand_data_df = load_demand()
+        self.demand_data_df = self.adjust_demand_with_hackathon_method(self.sample_demand_data_df)
+        print("Columns and Head of Hackathon Input Format demand data: ")
+        print(self.demand_data_df.columns)
+        print(self.demand_data_df.head())
+        '''
+        Logic on the other parts of the project need to be adjusted to understand the format of the Hackathon Input Format demand data.
+        This Class or the input data should not be changed.
+        Change how you handle the data in the other parts of the project with regards to required_capacity.
+        '''
 
     def adjust_demand_with_hackathon_method(self, demand_df):
         return get_actual_demand(demand_df)
-
-    def __str__(self):
-        return f"InputDemandDataActual: {len(self.demand_data_df)} rows of adjusted demand data"
-    
-# Assuming you have historical demand data loaded and a method to predict future demand
-# class DemandForecaster:
-#     def __init__(self, historical_data):
-#         self.historical_data = historical_data
-
-#     def predict_demand(self, future_periods):
-#         # Implement your forecasting model here
-#         # This could be a simple time series model or a more complex machine learning model
-#         pass
-#     def plan_capacity(self, demand_forecasts):
-#         # Calculate required capacity for each server type and data center
-#         # Make decisions on server purchases or re-allocations
-#         pass
-#     def automate_deployment(self, capacity_plan):
-#         # Automatically deploy or re-allocate servers according to the planned capacity
-#         # Could interface with virtualization management platforms or use API calls to manage physical servers
-#         pass
