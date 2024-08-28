@@ -1,6 +1,3 @@
-import utils as utl
-import application as app
-import seeds as sds
 import pandas as pd
 from utils import *
 from evaluation import *
@@ -10,7 +7,7 @@ class Server:
         self.generation = generation
         self.latency_sensitivity = latency
         self.data_center = data_center
-
+        self.moved_this_step = False
         # Using properties to dynamically fetch data when needed
         self._givens = givens
 
@@ -162,10 +159,16 @@ class Inventory:
     def get_datacenter_by_id(self, identifier):
         """ Returns the datacenter object by its identifier. """
         return next((dc for dc in self.datacenters if dc.identifier == identifier), None)
-
+    
+    def get_total_energy_cost(self):
+        total_cost = 0
+        for server in self.servers:
+            if server.deployed:
+                total_cost += server.energy_consumption * self.cost_of_energy
+        return total_cost
+    
     def get_total_costs(self):
-        """ Aggregates cost metrics across all datacenters. """
-        energy_cost = sum(dc.get_total_energy_cost() for dc in self.datacenters)
+        energy_cost = self.get_total_energy_cost()
         maintenance_cost = sum(dc.get_total_maintenance_cost() for dc in self.datacenters)
         purchase_cost = sum(dc.get_total_purchase_cost() for dc in self.datacenters)
         moving_cost = sum(dc.get_total_moving_cost() for dc in self.datacenters)
@@ -176,6 +179,10 @@ class Inventory:
             'moving_cost': moving_cost
         }
 
+    # def predictive_scaling(self):
+    #     predicted_load = self.predict_load()
+    #     self.adjust_server_operations(predicted_load)
+    
     def get_aggregated_server_capacities(self):
         """ Aggregates server capacities by server generation across all datacenters. """
         capacity_data = []
@@ -223,3 +230,21 @@ class InputDemandDataActual:
 
     def __str__(self):
         return f"InputDemandDataActual: {len(self.demand_data_df)} rows of adjusted demand data"
+    
+# Assuming you have historical demand data loaded and a method to predict future demand
+# class DemandForecaster:
+#     def __init__(self, historical_data):
+#         self.historical_data = historical_data
+
+#     def predict_demand(self, future_periods):
+#         # Implement your forecasting model here
+#         # This could be a simple time series model or a more complex machine learning model
+#         pass
+#     def plan_capacity(self, demand_forecasts):
+#         # Calculate required capacity for each server type and data center
+#         # Make decisions on server purchases or re-allocations
+#         pass
+#     def automate_deployment(self, capacity_plan):
+#         # Automatically deploy or re-allocate servers according to the planned capacity
+#         # Could interface with virtualization management platforms or use API calls to manage physical servers
+#         pass

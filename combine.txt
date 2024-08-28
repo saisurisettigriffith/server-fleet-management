@@ -10,30 +10,55 @@ from evaluation import *
 
 class Server:
     def __init__(self, givens, generation, latency, data_center):
-        server_data = givens.servers_df[givens.servers_df['server_generation'] == generation].iloc[0]
-        selling_price_data = givens.selling_prices_df[givens.selling_prices_df['server_generation'] == generation]
-        self.identifier = f"{generation}_{data_center.identifier}_{np.random.randint}"  # Example to create a unique identifier
         self.generation = generation
-        self.server_type = server_data['server_type']
-        self.capacity = server_data['capacity']
-        self.slots_needed = server_data['slots_size']
-        self.energy_consumption = server_data['energy_consumption']
-        self.purchase_price = server_data['purchase_price']
-        self.life_expectancy = server_data['life_expectancy']
-        self.cost_of_moving = server_data['cost_of_moving']
-        self.maintenance_fee = server_data['average_maintenance_fee']
-        self.release_time_bounds = eval(server_data['release_time'])
         self.latency_sensitivity = latency
-
-        self.sell_price_low = selling_price_data[selling_price_data['latency_sensitivity'] == 'low']['selling_price'].iloc[0]
-        self.sell_price_medium = selling_price_data[selling_price_data['latency_sensitivity'] == 'medium']['selling_price'].iloc[0]
-        self.sell_price_high = selling_price_data[selling_price_data['latency_sensitivity'] == 'high']['selling_price'].iloc[0]
-
-        self.remaining_life = self.life_expectancy
-        self.deployed = self.remaining_life > 0
-        self.operational_time = 0
         self.data_center = data_center
-        self.selling_price = self.sell_price_low if self.latency_sensitivity == 'low' else self.sell_price_medium if self.latency_sensitivity == 'medium' else self.sell_price_high
+        # Using properties to dynamically fetch data when needed
+        self._givens = givens
+
+    @property
+    def server_data(self):
+        # Dynamically fetches server data
+        return self._givens.servers_df[self._givens.servers_df['server_generation'] == self.generation].iloc[0]
+
+    @property
+    def selling_price_data(self):
+        # Dynamically fetches selling price data
+        return self._givens.selling_prices_df[self._givens.selling_prices_df['server_generation'] == self.generation]
+
+    @property
+    def capacity(self):
+        return self.server_data['capacity']
+
+    @property
+    def slots_needed(self):
+        return self.server_data['slots_size']
+
+    @property
+    def energy_consumption(self):
+        return self.server_data['energy_consumption']
+
+    @property
+    def purchase_price(self):
+        return self.server_data['purchase_price']
+
+    @property
+    def life_expectancy(self):
+        return self.server_data['life_expectancy']
+
+    @property
+    def cost_of_moving(self):
+        return self.server_data['cost_of_moving']
+
+    @property
+    def maintenance_fee(self):
+        return self.server_data['average_maintenance_fee']
+
+    @property
+    def selling_price(self):
+        # Dynamic fetching based on latency sensitivity
+        price_row = self.selling_price_data[self.selling_price_data['latency_sensitivity'] == self.latency_sensitivity]
+        return price_row['selling_price'].iloc[0] if not price_row.empty else None
 
     def age_server(self):
         if self.deployed:
@@ -43,6 +68,8 @@ class Server:
 
     def deploy(self):
         self.deployed = True
+        self.remaining_life = self.life_expectancy
+        self.operational_time = 0
 
     def decommission(self):
         self.deployed = False
@@ -57,151 +84,175 @@ class Server:
     def update(self):
         self.update_life(1)
 
-
 class DataCenter:
     def __init__(self, givens, identifier):
-        self.datacenters_df = givens.datacenters_df
-        datacenter_data = self.datacenters_df[self.datacenters_df['datacenter_id'] == identifier].iloc[0]
+        self._givens = givens
         self.identifier = identifier
-        self.slots_capacity = datacenter_data['slots_capacity']
-        self.filled_slots = 0
-        self.empty_slots = self.slots_capacity
-        self.cost_of_energy = datacenter_data['cost_of_energy']
-        self.latency_sensitivity = datacenter_data['latency_sensitivity']
+        self.datacenter_data = self._givens.datacenters_df[self._givens.datacenters_df['datacenter_id'] == identifier].iloc[0]
         self.servers = []  # List of Server objects
+
+    @property
+    def slots_capacity(self):
+        return self.datacenter_data['slots_capacity']
+
+    @property
+    def cost_of_energy(self):
+        return self.datacenter_data['cost_of_energy']
+
+    @property
+    def latency_sensitivity(self):
+        return self.datacenter_data['latency_sensitivity']
+
+    @property
+    def filled_slots(self):
+        return sum(server.slots_needed for server in self.servers if server.deployed)
+
+    @property
+    def empty_slots(self):
+        return self.slots_capacity - self.filled_slots
 
     def add_server(self, server):
         if self.can_add_server(server):
             self.servers.append(server)
             server.deploy()
-            self.filled_slots += server.slots_needed
-            self.empty_slots = self.slots_capacity - self.filled_slots
             print(f"Server {server.generation} added to {self.identifier}")
         else:
             print("Not enough slots to add this server")
+
+    def dismiss_servers(self):
+        """ Method to remove servers that are no longer operational due to end of life. """
+        for server in list(self.servers):
+            if server.remaining_life <= 0:
+                self.remove_server(server)
 
     def remove_server(self, server):
         if server in self.servers:
             self.servers.remove(server)
             server.decommission()
-            self.filled_slots -= server.slots_needed
-            self.empty_slots = self.slots_capacity - self.filled_slots
             print(f"Server {server.generation} removed from {self.identifier}")
 
     def can_add_server(self, server):
-        total_slots_used = sum(s.slots_needed for s in self.servers if s.deployed)
-        return total_slots_used + server.slots_needed <= self.slots_capacity
+        return self.empty_slots >= server.slots_needed
 
     def simulate_time_step(self):
         for server in self.servers:
             server.age_server()
 
+    def __str__(self):
+        return f"DataCenter {self.identifier}: Capacity {self.slots_capacity}, Empty Slots {self.empty_slots}"
+
+
 class Inventory:
     def __init__(self, givens):
-        # Loading the data might typically happen outside of this class, but we include it here for completeness
-        self.datacenters_df = givens.datacenters_df
-        self.servers_df = givens.servers_df
-        self.selling_prices_df = givens.selling_prices_df
-        self.datacenters = [DataCenter(givens, dc) for dc in self.datacenters_df['datacenter_id']]
-        self.filled_slots = 0
-        self.empty_slots = sum(dc.slots_capacity for dc in self.datacenters)
-        self.servers = []  # List of all servers in all datacenters
+        self._givens = givens
+        self.datacenters = [DataCenter(givens, dc_id) for dc_id in self._givens.datacenters_df['datacenter_id']]
 
     def update_servers(self):
-        # This method would be used to sync servers across datacenters if needed
-        self.update_end_of_life_servers()
-        for dc in self.datacenters:
-            for server in dc.servers:
-                if server not in self.servers:
-                    self.servers.append(server)
-    
-    def update_end_of_life_servers(self):
-        # Decommission servers that have reached the end of their life expectancy
-        for server in self.servers:
-            if server.remaining_life <= 0:
-                server.decommission()
-    
+        """ Synchronizes the state of all servers across datacenters, checking end-of-life and updating capacities. """
+        for datacenter in self.datacenters:
+            for server in datacenter.servers[:]:  # Copy to avoid modification during iteration
+                if server.remaining_life <= 0:
+                    datacenter.remove_server(server)
+                else:
+                    server.update()
+
     def simulate_time_step_servers(self):
-        for server in self.servers:
-            server.update()
+        """ Advances the simulation by one time step for each server. """
+        for datacenter in self.datacenters:
+            datacenter.simulate_time_step()
 
     def get_datacenter_by_id(self, identifier):
-        # Retrieve a datacenter by its ID
-        for dc in self.datacenters:
-            if dc.identifier == identifier:
-                return dc
-        return None
-
-    def get_server_by_generation(self, generation):
-        # Retrieve a server by its generation
-        for server in self.servers:
-            if server.generation == generation:
-                return server
-        return None
-
+        """ Returns the datacenter object by its identifier. """
+        return next((dc for dc in self.datacenters if dc.identifier == identifier), None)
+    
     def get_total_energy_cost(self):
-        # Calculate total energy cost across all datacenters
-        total_cost = 0
-        for dc in self.datacenters:
-            for server in dc.servers:
-                if server.deployed:
-                    total_cost += dc.cost_of_energy * server.energy_consumption
-        return total_cost
-
-    def get_total_maintenance_cost(self):
-        # Calculate total maintenance cost for all deployed servers
         total_cost = 0
         for server in self.servers:
             if server.deployed:
-                total_cost += server.maintenance_fee
+                total_cost += server.energy_consumption * self.cost_of_energy
         return total_cost
+    
+    def get_total_costs(self):
+        energy_cost = self.get_total_energy_cost()
+        maintenance_cost = sum(dc.get_total_maintenance_cost() for dc in self.datacenters)
+        purchase_cost = sum(dc.get_total_purchase_cost() for dc in self.datacenters)
+        moving_cost = sum(dc.get_total_moving_cost() for dc in self.datacenters)
+        return {
+            'energy_cost': energy_cost,
+            'maintenance_cost': maintenance_cost,
+            'purchase_cost': purchase_cost,
+            'moving_cost': moving_cost
+        }
 
-    def get_total_purchase_cost(self):
-        # Calculate total purchase cost for all deployed servers
-        total_cost = 0
-        for server in self.servers:
-            if server.deployed:
-                total_cost += server.purchase_price
-        return total_cost
-
-    def get_total_moving_cost(self):
-        # Calculate total moving cost for all moved servers
-        total_cost = 0
-        for server in self.servers:
-            if server.deployed and server.moved_this_step:
-                total_cost += server.cost_of_moving
-        return total_cost
+    # def predictive_scaling(self):
+    #     predicted_load = self.predict_load()
+    #     self.adjust_server_operations(predicted_load)
+    
     def get_aggregated_server_capacities(self):
-        # Aggregate server capacities by generation and latency sensitivity
+        """ Aggregates server capacities by server generation across all datacenters. """
         capacity_data = []
         for dc in self.datacenters:
             for server in dc.servers:
                 if server.deployed:
                     capacity_data.append({
                         'server_generation': server.generation,
-                        'latency_sensitivity': server.latency_sensitivity,
                         'capacity': server.capacity
                     })
-
         df = pd.DataFrame(capacity_data)
         if not df.empty:
-            return df.groupby(['server_generation', 'latency_sensitivity'])['capacity'].sum().unstack(fill_value=0)
+            aggregated = df.groupby('server_generation')['capacity'].sum()
+            return aggregated.to_frame('capacity')  # Convert to DataFrame explicitly
         else:
-            return pd.DataFrame()
+            return pd.DataFrame(columns=['capacity'])  # Ensure it's always a DataFrame
+
+
+
+    def __str__(self):
+        """ Provides a string representation of the inventory for debugging purposes. """
+        return f"Inventory with Datacenters: {[dc.identifier for dc in self.datacenters]}"
 
 class ProblemData:
-    # Constructor that uses load_problem_data to load the data from the csv files
     def __init__(self):
         self.datacenters_df, self.servers_df, self.selling_prices_df = load_problem_data_without_demand()
+
+    def __str__(self):
+        return f"ProblemData: {len(self.datacenters_df)} datacenters, {len(self.servers_df)} servers, {len(self.selling_prices_df)} selling prices"
 
 class InputDemandDataSample:
     def __init__(self):
         self.demand_data_df = load_demand()
-        
+
+    def __str__(self):
+        return f"InputDemandDataSample: {len(self.demand_data_df)} rows of demand data"
+
 class InputDemandDataActual:
     def __init__(self, sample_data=InputDemandDataSample(), seed=None):
         np.random.seed(seed)
-        self.demand_data_df = get_actual_demand(sample_data.demand_data_df)
+        self.demand_data_df = self.adjust_demand_with_hackathon_method(sample_data.demand_data_df)
+
+    def adjust_demand_with_hackathon_method(self, demand_df):
+        return get_actual_demand(demand_df)
+
+    def __str__(self):
+        return f"InputDemandDataActual: {len(self.demand_data_df)} rows of adjusted demand data"
+    
+# Assuming you have historical demand data loaded and a method to predict future demand
+# class DemandForecaster:
+#     def __init__(self, historical_data):
+#         self.historical_data = historical_data
+
+#     def predict_demand(self, future_periods):
+#         # Implement your forecasting model here
+#         # This could be a simple time series model or a more complex machine learning model
+#         pass
+#     def plan_capacity(self, demand_forecasts):
+#         # Calculate required capacity for each server type and data center
+#         # Make decisions on server purchases or re-allocations
+#         pass
+#     def automate_deployment(self, capacity_plan):
+#         # Automatically deploy or re-allocate servers according to the planned capacity
+#         # Could interface with virtualization management platforms or use API calls to manage physical servers
+#         pass
 
 Filename: mysolution.py
 Path: mysolution.py
@@ -219,8 +270,14 @@ for seed in seeds:
     if (x == 0):
         break
     givens = ProblemData()
-    input_actual = InputDemandDataActual(seed=seed)
-    solution_json = app.solution_function(givens, input_actual, time_steps=4, debugging=True)
+    sample_demand = InputDemandDataSample()
+    actual_demand = InputDemandDataActual(sample_data=sample_demand, seed=42)
+    inventory = Inventory(givens)
+    print(givens)
+    print(sample_demand)
+    print(actual_demand)
+    print(inventory)
+    solution_json = app.solution_function(givens, actual_demand, time_steps=4, debugging=True)
     # SAVE YOUR SOLUTION
     save_solution(solution_json, f'{outputdirectory}/{seed}.json')
     x -= 1
@@ -228,6 +285,7 @@ for seed in seeds:
 Filename: application.py
 Path: application.py
 
+import os
 import numpy as np
 import pandas as pd
 from Classes import *
@@ -237,10 +295,52 @@ class Simulation:
     def __init__(self, givens, input_actual, time_steps, debugging):
         self.givens = givens
         self.input_actual = input_actual.demand_data_df
+        # # Check if latency_sensitivity is the name of the index and reset it
+        # if self.input_actual.index.name == 'latency_sensitivity':
+        #     self.input_actual.reset_index(drop=True, inplace=True)
+        
         self.inventory = Inventory(givens)
         self.time_steps = time_steps
         self.debugging = debugging
-        self.adjusted_capacities = None  # Store adjusted capacities here
+        self.failure_rates = self.sample_failure_rates()  # Sample once and use throughout the simulation
+        self.hello = self.print_available_keys()
+
+        self.inventory = Inventory(givens)
+        self.time_steps = time_steps
+        self.debugging = debugging
+        self.failure_rates = self.sample_failure_rates()  # Sample once and use throughout the simulation
+        self.hello = self.print_available_keys()
+
+    def get_demand(self, generation, latency_sensitivity):
+        # Accessing demand data based on server generation and a specific latency sensitivity
+        try:
+            current_demand = self.input_actual.loc[
+                self.input_actual['server_generation'] == generation, latency_sensitivity
+            ].sum()
+            return current_demand
+        except KeyError as e:
+            print(f"Column not found: {latency_sensitivity}, available columns: {self.input_actual.columns}")
+            return 0
+
+
+    def print_available_keys(self):
+        print("Available keys in failure_rates:", self.failure_rates.keys())
+        return True
+
+    def sample_failure_rates(self):
+        # Sampling failure rates for each server type and generation
+        rates = {}
+        for generation in self.givens.servers_df['server_generation'].unique():
+            rates[generation] = truncweibull_min.rvs(0.3, 0.05, 0.1, size=1).item()
+        return rates
+
+    def adjust_capacity_by_failure_rate(self, capacity, generation):
+        # Use the pre-sampled failure rate
+        failure_rate = self.failure_rates[generation]
+        adjusted_capacity = int(capacity * (1 - failure_rate))
+        if self.debugging:
+            print(f"Adjusting capacity for {generation}: original={capacity}, adjusted={adjusted_capacity}, failure_rate={failure_rate}")
+        return adjusted_capacity
 
     def print_data(self):
         print("\'input_actual\' Data:")
@@ -256,12 +356,119 @@ class Simulation:
 
     def process_time_step(self, current_time_step):
         current_capacities = self.inventory.get_aggregated_server_capacities()
-        self.adjusted_capacities = current_capacities.applymap(self.adjust_capacity_by_failure_rate)
-        print(f"Adjusted Capacities at time step {current_time_step}")
-        print(self.adjusted_capacities)
+        if not current_capacities.empty:
+            # If the DataFrame is not empty, adjust capacities
+            self.adjusted_capacities = current_capacities.apply(
+                lambda x: self.adjust_capacity_by_failure_rate(x['capacity'], x.name),
+                axis=1
+            )
+            print(f"Adjusted Capacities at time step {current_time_step}:")
+            print(self.adjusted_capacities)
+        else:
+            print("No capacities to adjust.")
+
         self.handle_demand(current_time_step)
+        print(f"Utilization: {self.calculate_utilization(current_time_step)}")
+        print(f"Normalized Lifespan: {self.calculate_normalized_lifespan()}")
+        print(f"Profit: {self.calculate_profit()}")
         print(f"Utilization at time step {current_time_step}: {self.calculate_utilization(current_time_step)}")
         self.dismiss_servers()
+
+    ### b. The servers' normalized lifespan \( L \)
+
+    # This is defined in Eq. 3, for all the servers of the fleet \( S \), as the ratio of the operating time \( x_s \), that is the number of time-steps since the server \( s \) has been deployed, to \( \hat{x}_s \), that is the server life expectancy. It should be noted that after \( \hat{x}_s \) time-steps, the server must be dismissed.
+
+    # \[
+    # L = \frac{1}{|S|} \times \sum_{s \in S} \frac{x_s}{\hat{x}_s} \tag{3}
+    # \]
+
+    def calculate_normalized_lifespan(self):
+        total_lifespan_ratio = 0
+        deployed_servers_count = 0
+
+        for datacenter in self.inventory.datacenters:
+            for server in datacenter.servers:
+                if server.deployed:
+                    lifespan_ratio = server.operational_time / server.life_expectancy
+                    total_lifespan_ratio += lifespan_ratio
+                    deployed_servers_count += 1
+
+        normalized_lifespan = (total_lifespan_ratio / deployed_servers_count) if deployed_servers_count > 0 else 0
+        return normalized_lifespan
+
+    ### c. The profit \( P \)
+
+    # This is defined in Eq. 4 as the difference between the revenue \( R \) and the cost \( C \).
+
+    # \[
+    # P = R - C \tag{4}
+    # \]
+
+        # The revenue \( R \) is defined in Eq. 4.1 as the sum of the revenue generated by the capacity \( Z_{i,g}^f \) deployed to satisfy the demand \( D_{i,g} \) for a certain latency sensitivity \( i \) and server generation \( g \). The revenue equals the met demand \( \text{min}(Z_{i,g}^f, D_{i,g}) \) times the price \( p_{i,g} \). As in Eq. 2, \( f \) represents the failure rate. Selling prices are stored in the file `./data/selling_prices.csv`.
+
+        # \[
+        # R = \sum_{i \in I} \sum_{g \in G} \text{min}(Z_{i,g}^f, D_{i,g}) \times p_{i,g} \tag{4.1}
+        # \]
+
+        # The cost \( C \) is defined in Eq. 4.2 as the sum of the cost of all servers \( S_k \) deployed across all data-centers \( K \). The cost of a server is equal to the sum of the server purchase price \( r_s \), the cost of the server energy consumption \( e_s \), and the server maintenance cost \( \alpha(\cdot) \). If the server is moved from one data-center to another it is necessary to account for the moving cost \( m \). The server energy consumption, as defined in Eq. 4.2.1, is equal to the product of the server energy consumption \( \hat{e}_s \) times the cost of energy \( h_k \) that is the cost of energy at the data-center \( k \) where the server \( s \) is deployed. Finally, the maintenance cost is calculated according to a function \( \alpha(\cdot) \) defined in Eq. 4.2.2. This function takes as input: the server operating time \( x_s \), the server life expectancy \( \hat{x}_s \), and average maintenance fee \( b_s \).
+
+        # \[
+        # C = \sum_{k \in K} \sum_{s \in S_k} \begin{cases} 
+        # r_s + e_s + \alpha(x_s) & \text{if } x_s = 1 \\
+        # e_s + \alpha(x_s) + m & \text{if action = move} \\
+        # e_s + \alpha(x_s) & \text{otherwise}
+        # \end{cases} \tag{4.2}
+        # \]
+
+        # \[
+        # e_s = \hat{e}_s \times h_k \tag{4.2.1}
+        # \]        
+
+        # \[
+        # \alpha(x_s) = b_s \times \left[ 1 + \frac{1.5 x_s}{\hat{x}_s} \times \log_2\left(\frac{1.5 x_s}{\hat{x}_s}\right) \right] \tag{4.2.2}
+        # \]
+
+    def get_demand(self, generation, latency_sensitivity):
+        try:
+            filtered_data = self.input_actual[
+                (self.input_actual['server_generation'] == generation) & (self.input_actual[latency_sensitivity])
+            ]
+            print("Filtered Data:", filtered_data)  # Debugging line to see what's being filtered
+
+            # Attempt to convert the relevant column to float, sum it, and ensure no strings are present
+            demand_sum = pd.to_numeric(filtered_data, errors='coerce').sum()
+            print("Summed Demand:", demand_sum)  # Debugging line to see the summed demand
+
+            return demand_sum
+        except Exception as e:
+            print(f"An error occurred in get_demand: {str(e)}")
+            return 0  # Return 0 demand in case of any error to prevent further issues
+
+
+    def calculate_profit(self):
+        total_revenue = 0
+        total_cost = 0
+
+        for datacenter in self.inventory.datacenters:
+            for server in datacenter.servers:
+                if server.deployed:
+                    # Ensure server.capacity and demand are compatible types
+                    demand = min(float(server.capacity), float(self.get_demand(server.generation, server.latency_sensitivity)))
+                    revenue = demand * float(server.selling_price)  # Ensure selling_price is a float
+                    total_revenue += revenue
+
+                    # Continue with further calculations ensuring all are numeric types
+                    energy_cost = float(server.energy_consumption) * float(datacenter.cost_of_energy)
+                    if server.operational_time == 1:
+                        total_cost += server.purchase_price + energy_cost + server.maintenance_fee
+                    else:
+                        total_cost += energy_cost + server.maintenance_fee
+                    if server.moved_this_step:
+                        total_cost += server.cost_of_moving
+
+        profit = total_revenue - total_cost
+        return profit
+
 
 
     def handle_demand(self, current_time_step):
@@ -273,12 +480,7 @@ class Simulation:
                     server for dc in self.inventory.datacenters for server in dc.servers
                     if server.generation == demand['server_generation'] and server.latency_sensitivity == latency_sensitivity
                 ]
-                #print both normal and adjusted capacities
-                print(f"Normal Capacities at time step {current_time_step}")
-                print(self.inventory.get_aggregated_server_capacities())
-                print(f"Adjusted Capacities at time step {current_time_step}")
-                print(self.adjusted_capacities)
-                total_available_capacity = sum(self.adjusted_capacities.get((server.generation, server.latency_sensitivity), 0) for server in available_servers)
+                total_available_capacity = sum(server.capacity for server in available_servers)
 
                 if needed_capacity > total_available_capacity:
                     self.buy_servers(demand['server_generation'], latency_sensitivity, needed_capacity - total_available_capacity)
@@ -287,7 +489,7 @@ class Simulation:
         print(f"Trying to meet additional demand of {additional_capacity_needed} with new servers.")
         server_data = self.givens.servers_df[self.givens.servers_df['server_generation'] == generation].iloc[0]
         slots_needed = server_data['slots_size']
-        purchase_limit = 10  # Limit the number of server purchases per timestep
+        purchase_limit = 10  # This could be adjusted based on strategic needs
 
         for datacenter in self.inventory.datacenters:
             purchase_count = 0
@@ -298,8 +500,7 @@ class Simulation:
                     additional_capacity_needed -= new_server.capacity
                     purchase_count += 1
                     print(f"Added one {generation} server to {datacenter.identifier}; remaining demand: {additional_capacity_needed}.")
-                else:
-                    print("No suitable server found or datacenter capacity reached.")
+                if additional_capacity_needed <= 0:
                     break
 
             if additional_capacity_needed <= 0 or purchase_count == purchase_limit:
@@ -308,13 +509,21 @@ class Simulation:
         if additional_capacity_needed > 0:
             print(f"Warning: Not enough capacity to meet the demand for {generation} servers with {latency_sensitivity} sensitivity after {purchase_limit} purchases. Missing capacity: {additional_capacity_needed}")
 
-
     def dismiss_servers(self):
-        # Dismiss servers based on life expectancy
         for datacenter in self.inventory.datacenters:
-            for server in datacenter.servers[:]:
-                if server.remaining_life <= 0:
-                    datacenter.remove_server(server)
+            datacenter.dismiss_servers()
+
+    ### a. The servers' utilization \( U \)
+
+    # This is defined in Eq. 2 as the ratio of the demand \( D_{i,g} \) for a certain latency sensitivity \( i \) and server generation \( g \) to the capacity \( Z_{i,g}^f \) deployed to satisfy such demand. As the demand could be higher than the capacity (and vice versa), in the numerator, we use the met demand \( \text{min}(Z_{i,g}^f, D_{i,g}) \). Here, \( f \) represents the failure rate that is sampled from a truncated Weibull distribution with \( f \in [0.05, 0.1] \). Specifically, the capacity \( Z_{i,g}^f \) is equal to the sum of the capacities of all servers of generation \( g \) deployed across all data-centers with latency sensitivity \( i \) adjusted by the failure rate \( f \) as follows: \( Z_{i,g}^f = (1 - f) \times Z_{i,g} \). Also, servers' utilization is averaged across the total number of latency sensitivity and server generation pairs \( |I \times G| \). Finally, it should be noted that, at each time-step \( t \), the demand is stochastic as outlined in Eq. 2.1.
+
+    # \[
+    # U = \frac{1}{|I \times G|} \times \sum_{i \in I} \sum_{g \in G} \frac{\text{min}(Z_{i,g}^f, D_{i,g})}{Z_{i,g}} \tag{2}
+    # \]
+
+    # \[
+    # D_{i,g,t} = D_{i,g,t-1} + \mathcal{N} \tag{2.1}
+    # \]
 
     def calculate_utilization(self, current_time_step):
         total_capacity = 0
@@ -322,7 +531,6 @@ class Simulation:
         for datacenter in self.inventory.datacenters:
             for server in datacenter.servers:
                 if server.deployed:
-                    # Aggregate demand based on latency sensitivity handled by the server
                     latency_column = server.latency_sensitivity
                     demand = self.input_actual.loc[
                         (self.input_actual['time_step'] == current_time_step) &
@@ -334,14 +542,7 @@ class Simulation:
             return total_demand_met / total_capacity
         else:
             return 0
-    def get_capacity_by_server_generation_latency_sensitivity(self, fleet):
-        # Adjust fleet capacity by failure rate
-        capacity = fleet.groupby(by=['server_generation', 'latency_sensitivity'])['capacity'].sum().unstack(fill_value=0)
-        return capacity.applymap(self.adjust_capacity_by_failure_rate)
 
-    def adjust_capacity_by_failure_rate(self, capacity):
-        failure_rate = truncweibull_min.rvs(0.3, 0.05, 0.1, size=1).item()
-        return int(capacity * (1 - failure_rate))
 
 def solution_function(givens, input_actual, time_steps=168, debugging=False):
     simulation = Simulation(givens, input_actual, time_steps, debugging)
