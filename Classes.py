@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 from utils import *
 from evaluation import *
@@ -99,7 +100,28 @@ class DataCenter:
         self.servers = []  # List of Server objects
 
     def deploy_server(self, server_type, quantity):
-        server_info = self._givens.servers_df[self._givens.servers_df['server_type'] == server_type].iloc[0]
+        print(f"Deploying {quantity} servers of type {server_type} in data center {self.identifier}")
+        print("self._givens.servers_df")
+        print(self._givens.servers_df)
+        '''
+        Deploying 0 servers of type 0 in data center DC1
+        > self._givens.servers_df:
+        server_generation server_type release_time  purchase_price  slots_size  energy_consumption  capacity  life_expectancy  cost_of_moving  average_maintenance_fee
+        0            CPU.S1         CPU       [1,60]           15000           2                 400        60               96            1000                      288
+        1            CPU.S2         CPU      [37,96]           16000           2                 460        75               96            1000                      308
+        2            CPU.S3         CPU     [73,132]           19500           2                 800       120               96            1000                      375
+        3            CPU.S4         CPU    [109,168]           22000           2                 920       160               96            1000                      423
+        4            GPU.S1         GPU       [1,72]          120000           4                3000         8               96            1000                     2310
+        5            GPU.S2         GPU     [49,120]          140000           4                3000         8               96            1000                     2695
+        6            GPU.S3         GPU     [97,168]          160000           4                4200         8               96            1000                     3080
+        '''
+        # Check if the server type exists in the DataFrame
+        filtered_df = self._givens.servers_df[self._givens.servers_df['server_type'] == server_type]
+        if filtered_df.empty:
+            print(f"No server type '{server_type}' found.")
+            return
+        
+        server_info = filtered_df.iloc[0]
         slots_needed = server_info['slots_size'] * quantity
         
         if self.empty_slots >= slots_needed:
@@ -110,6 +132,7 @@ class DataCenter:
                 print(f"Deployed server {server_type} in data center {self.identifier}")
         else:
             print(f"Not enough slots to deploy {quantity} servers of type {server_type}. Available slots: {self.empty_slots}, needed: {slots_needed}")
+
 
     def power_down_server(self, server_type, quantity):
         # Filter servers of the specified type that are currently deployed
