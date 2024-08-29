@@ -111,6 +111,8 @@ class ServerManagementEnv(gym.Env):
                     print("Something is greater than 0")
                     source_dc_id = "DC" + str(move_source_dcs[idx] + 1)
                     target_dc_id = "DC" + str(move_target_dcs[idx] + 1)
+                    print("FROM: MOVE - Source Datacenter ID: ", source_dc_id)
+                    print("FROM: MOVE - Destination Datacenter ID: ", target_dc_id)
                     server_type = idx % self.num_server_types
                     success = self.inventory.move_server(server_type, qty, source_dc_id, target_dc_id)
                     print(f"Attempt to move {qty} servers of type {server_type} from {source_dc_id} to {target_dc_id}.")
@@ -119,6 +121,18 @@ class ServerManagementEnv(gym.Env):
                     else:
                         print(f"Failed to move {qty} servers from {source_dc_id} to {target_dc_id}.")
                         reward -= 1
+                    ''' ********** IMPORTANT - Training Area: Constraint Violation **********
+                    
+                    1. However, post-testing, no matter how well our model performs, we must still ensure that the during the execution of the model, 
+                    the constraints are not violated.
+
+                    2. This means that the number of servers of type server_type that are deployed in the data center dc_identifier should be shown to the RL agent.
+                    
+                    Because by giving negative reward, the agent will learn that it should not dismiss servers of type server_type from the data center dc_identifier.
+                    Especially if the number of servers of type server_type that are deployed in the data center dc_identifier is less than the number of servers of type server_type that are dismissed from the data center dc_identifier.
+                    We must check this in the code.
+                    ********** IMPORTANT - Training Area: Constraint Violation **********
+                    '''
 
         elif action_type == 2:  # Dismiss
             print("Dismiss action:")
@@ -129,6 +143,7 @@ class ServerManagementEnv(gym.Env):
                     server_type = idx % self.num_server_types
                     dc_id = idx // self.num_server_types
                     dc_identifier = "DC" + str(dc_id + 1)
+                    print("FROM: DISMISS - Datacenter ID: ", dc_identifier)
                     success = self.inventory.remove_server(server_type, qty, dc_identifier)
                     print(f"Attempt to remove {qty} servers of type {server_type} from data center {dc_identifier}.")
                     if success:
@@ -136,6 +151,20 @@ class ServerManagementEnv(gym.Env):
                     else:
                         print(f"Failed to remove {qty} servers of type {server_type} from data center {dc_identifier}.")
                         reward -= 1
+
+                    ''' ********** IMPORTANT - Training Area: Constraint Violation **********
+                    
+                    1. However, post-testing, no matter how well our model performs, we must still ensure that the during the execution of the model, 
+                    the constraints are not violated.
+
+                    2. This means that the number of servers of type server_type that are deployed in the data center dc_identifier should be shown to the RL agent.
+                    
+                    Because by giving negative reward, the agent will learn that it should not dismiss servers of type server_type from the data center dc_identifier.
+                    
+                    **Especially if the number of servers of type server_type that are deployed in the data center dc_identifier is less than the number of servers of type server_type that are dismissed from the data center dc_identifier.
+                    We must check this in the code.**
+                    ********** IMPORTANT - Training Area: Constraint Violation **********
+                    '''
 
         elif action_type == 3:  # Hold
             print("No action taken.")
