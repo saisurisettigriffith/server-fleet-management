@@ -3,6 +3,7 @@ import numpy
 import pandas as pd
 from utils import *
 from evaluation import *
+import random
 
 class Server:
     def __init__(self, givens, generation, latency, data_center, identifier):
@@ -165,6 +166,9 @@ class Inventory:
         self.current_moving_cost = 0
         self.current_purchase_cost = 0
 
+    def get_all_datacenters_identifiers(self):
+        return [dc.identifier for dc in self.datacenters]
+
     def get_datacenter_by_id(self, identifier):
         """ Returns the datacenter object by its identifier. """
         return next((dc for dc in self.datacenters if dc.identifier == identifier), None)
@@ -194,52 +198,61 @@ class Inventory:
             return df.groupby('server_generation')['capacity'].sum().to_frame('capacity')
         return pd.DataFrame(columns=['capacity'])
 
-    def move_server(self, server_id, source_dc_id, target_dc_id):
+    def move_server(self, server_type, quantity, source_dc_id, target_dc_id):
         source_dc = self.get_datacenter_by_id(source_dc_id)
         target_dc = self.get_datacenter_by_id(target_dc_id)
         if source_dc and target_dc:
-            server = next((s for s in source_dc.servers if s.identifier == server_id), None)
-            if server and target_dc.empty_slots >= server.slots_needed:
-                source_dc.servers.remove(server)
-                target_dc.servers.append(server)
-                server.data_center = target_dc
-                self.delta_moving_cost += server.cost_of_moving
-                self.current_moving_cost += server.cost_of_moving
-                print(f"Server {server_id} moved from {source_dc_id} to {target_dc_id}.")
+            # Collect all servers of the specified type in the source data center
+            servers_to_move = [s for s in source_dc.servers if s.generation == server_type and s.deployed][:quantity]
+            if len(servers_to_move) == quantity and all(target_dc.empty_slots >= s.slots_needed for s in servers_to_move):
+                for server in servers_to_move:
+                    source_dc.servers.remove(server)
+                    target_dc.servers.append(server)
+                    server.data_center = target_dc
+                    print(f"Server {server.identifier} of type {server_type} moved from {source_dc_id} to {target_dc_id}.")
+                self.delta_moving_cost += sum(server.cost_of_moving for server in servers_to_move)
+                self.current_moving_cost += sum(server.cost_of_moving for server in servers_to_move)
             else:
-                print(f"Not enough slots or server not found.")
+                print(f"Not enough slots or servers of type {server_type} to move from {source_dc_id} to {target_dc_id}.")
         else:
-            print("Invalid data center ID provided.")
+            print("Invalid data center IDs provided: Source - {source_dc_id}, Target - {target_dc_id}")
 
-    def add_server(self, server, datacenter_id, moving=False):
+    def add_server(self, server_index, quantity, datacenter_id, moving=False):
+        print("TO: BUY - Datacenter ID: ", datacenter_id)
         datacenter = self.get_datacenter_by_id(datacenter_id)
-        if (server < 4):
-            gen = "CPU"+"."+"S"+server+1
-        else:
-            gen = "GPU"+"."+"S"+server-3
-        if datacenter and datacenter.empty_slots >= server.slots_needed:
-            server_new = Server(self._givens, gen, datacenter.latency_sensitivity, datacenter, f"{server}_{numpy.random.randint(1000)}")
-            datacenter.servers.append(server_new)
-            server_new.deploy()
-            if not moving:
-                self.delta_purchase_cost += server_new.purchase_price
-                self.current_purchase_cost += server_new.purchase_price
-            print(f"Server Type {gen} added to {datacenter_id}")
-        else:
-            print(f"Not enough slots or data center not found for adding server {gen}.")
+        server_type = f"CPU.S{server_index + 1}" if server_index < 4 else f"GPU.S{server_index - 3}"
+        slots_needed = 2 if server_index < 4 else 4
+        for quant in range(quantity):
+            if datacenter and datacenter.empty_slots >= slots_needed:
+                unique_id = f"{server_type}_{numpy.random.randint(1000)}_{quant}"
+                server_new = Server(self._givens, server_type, datacenter.latency_sensitivity, datacenter, unique_id)
+                datacenter.servers.append(server_new)
+                server_new.deploy()
+                if not moving:
+                    self.delta_purchase_cost += server_new.purchase_price
+                    self.current_purchase_cost += server_new.purchase_price
+                print(f"Server Type {server_type} and ID {unique_id} added to {datacenter_id}")
+            else:
+                if not datacenter:
+                    print(f"Data center {datacenter_id} not found.")
+                else:
+                    print(f"Not enough slots to deploy server {server_type} in {datacenter_id}.")
 
-    def remove_server(self, server_id, datacenter_id):
+    def remove_server(self, server_type, quantity, datacenter_id):
+        print("Datacenter ID: ", datacenter_id)
         datacenter = self.get_datacenter_by_id(datacenter_id)
         if datacenter:
-            server = next((s for s in datacenter.servers if s.identifier == server_id), None)
-            if server:
-                datacenter.servers.remove(server)
-                server.decommission()
-                print(f"Server {server_id} removed from {datacenter_id}.")
+            matching_servers = [server for server in datacenter.servers if server.generation == server_type]
+            if len(matching_servers) >= quantity:
+                servers_to_remove = random.sample(matching_servers, quantity)
+                for server in servers_to_remove:
+                    datacenter.servers.remove(server)
+                    server.decommission()
+                    print(f"Server {server.identifier} of type {server_type} removed from {datacenter_id}.")
             else:
-                print("Server not found in specified data center.")
+                print(f"Not enough servers of type {server_type} to remove {quantity} units from data center {datacenter_id}.")
         else:
-            print("Data center not found.")
+            print("Data center not found: {datacenter_id}")
 
     def update(self):
         """ Advances all data centers and their servers one time step forward. """

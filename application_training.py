@@ -7,6 +7,11 @@ def train_model():
     actual_demand = InputDemandDataActual(seed=42)
     env = ServerManagementEnv(givens, actual_demand)
     print(env)
+    sample = Inventory(givens)
+    print(sample.get_all_datacenters_identifiers())
+    source_dc_id = 1
+    source_dc_id = "DC" + str(source_dc_id)
+    print(source_dc_id)
 
     # Using a model to train
     model = PPO('MlpPolicy', env, verbose=1)
@@ -15,7 +20,7 @@ def train_model():
     print("Initial Observation:", obs)
     
     # Perform multiple steps
-    for _ in range(100):  # Define the number of steps or use a more complex termination condition
+    for _ in range(10):  # Define the number of steps or use a more complex termination condition
         action = model.predict(obs, deterministic=True)[0]
         print(f"Predicted Action: {action}")
         obs, reward, done, info = env.step(action)
