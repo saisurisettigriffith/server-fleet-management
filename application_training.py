@@ -13,7 +13,7 @@ def train_model():
 
     obs = env.reset()
     print("Initial Observation:", obs)
-
+    
     # Perform multiple steps
     for _ in range(100):  # Define the number of steps or use a more complex termination condition
         action = model.predict(obs, deterministic=True)[0]

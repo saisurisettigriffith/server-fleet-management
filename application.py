@@ -34,8 +34,7 @@ class Simulation:
         print("Data types in selling_prices_df:\n", self.givens.selling_prices_df.dtypes)
         print("Data types in input_actual:\n", self.input_actual.dtypes)
 
-    # Existing methods...
-
+    # Existing methods...  
 
     def start_simulation(self):
         self.print_data()
@@ -371,9 +370,9 @@ class Simulation:
 
         return moved_capacity
 
-    def dismiss_servers(self):
+    def age_servers(self):
         for datacenter in self.inventory.datacenters:
-            datacenter.dismiss_servers()
+            datacenter.age_servers()
 
     ### a. The servers' utilization \( U \)
 
