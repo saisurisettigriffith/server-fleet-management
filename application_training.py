@@ -6,12 +6,14 @@ def train_model():
     givens = ProblemData()
     actual_demand = InputDemandDataActual(seed=42)
     env = ServerManagementEnv(givens, actual_demand)
+    print("Printing Actual Demands:")
+    print(actual_demand.demand_data_df)
     print(env)
     sample = Inventory(givens)
     print(sample.get_all_datacenters_identifiers())
     source_dc_id = 1
     source_dc_id = "DC" + str(source_dc_id)
-    print(source_dc_id)
+    print(source_dc_id) 
 
     # Using a model to train
     model = PPO('MlpPolicy', env, verbose=1)
@@ -19,18 +21,18 @@ def train_model():
     obs = env.reset()
     print("Initial Observation:", obs)
     
-    # Perform multiple steps
-    for _ in range(10):  # Define the number of steps or use a more complex termination condition
+    # Perform multiple stepsy
+    for _ in range(671):  # Define the number of steps or use a more complex termination condition
         action = model.predict(obs, deterministic=True)[0]
-        print(f"Predicted Action: {action}")
+        #print(f"Predicted Action: {action}")
         obs, reward, done, info = env.step(action)
-        print(f"Action: {action}, Observation: {obs}, Reward: {reward}, Done: {done}")
+        #print(f"Action: {action}, Observation: {obs}, Reward: {reward}, Done: {done}")
 
         if done:
             obs = env.reset()  # Reset the environment when a terminal state is reached
 
     model.save("server_management_rl_model")
-    print("Training completed and model saved.")
+    print("Training completed and model saved.")    
 
 if __name__ == "__main__":
     print("Training the model...")
