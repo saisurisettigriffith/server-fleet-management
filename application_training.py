@@ -1,39 +1,39 @@
 from stable_baselines3 import PPO
 from envs.server_management_env import ServerManagementEnv
+from stable_baselines3.common.vec_env import DummyVecEnv
 from Classes import *
+import os 
 
-def train_model():
+def train_model(seed = 144):
     givens = ProblemData()
-    actual_demand = InputDemandDataActual(seed=42)
-    env = ServerManagementEnv(givens, actual_demand)
-    print("Printing Actual Demands:")
-    print(actual_demand.demand_data_df)
-    print(env)
-    sample = Inventory(givens)
-    print(sample.get_all_datacenters_identifiers())
-    source_dc_id = 1
-    source_dc_id = "DC" + str(source_dc_id)
-    print(source_dc_id) 
+    actual_demand = InputDemandDataActual(seed)
+    env = DummyVecEnv([lambda: ServerManagementEnv(givens, actual_demand)])
 
-    # Using a model to train
-    model = PPO('MlpPolicy', env, verbose=1)
+    model_path = "server_management_rl_model.zip"
+    if os.path.exists(model_path):
+        model = PPO.load(model_path, env=env)
+        print("Model loaded from saved state.")
+    else:
+        model = PPO('MlpPolicy', env, verbose=1)
+        print("Training new model.")
 
     obs = env.reset()
-    print("Initial Observation:", obs)
-    
-    # Perform multiple stepsy
-    for _ in range(671):  # Define the number of steps or use a more complex termination condition
-        action = model.predict(obs, deterministic=True)[0]
-        #print(f"Predicted Action: {action}")
-        obs, reward, done, info = env.step(action)
-        #print(f"Action: {action}, Observation: {obs}, Reward: {reward}, Done: {done}")
-
-        if done:
+    step_count = 0
+    for _ in range(30):  # Define the number of steps or use a more complex termination condition
+        action = model.predict(obs, deterministic=False)[0]
+        print(f"Action: {action}")
+        obs, reward, dones, info = env.step(action)
+        step_count += 1
+        #print(f"Step {step_count}: Reward={reward}, Done={dones}")
+        if dones[0]:
             obs = env.reset()  # Reset the environment when a terminal state is reached
 
     model.save("server_management_rl_model")
-    print("Training completed and model saved.")    
+    print("Training completed and model saved.")
 
 if __name__ == "__main__":
     print("Training the model...")
-    train_model()
+    i = 0
+    while (i < 10):
+        train_model(18)
+        i += 1

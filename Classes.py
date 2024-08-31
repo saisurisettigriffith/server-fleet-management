@@ -7,9 +7,10 @@ import random
 import uuid
 
 class Server:
-    def __init__(self, givens, generation, data_center, identifier=None):
+    def __init__(self, givens, generation, data_center, data_center_object, identifier=None):
         self.generation = generation
         self.data_center = data_center
+        self.data_center_object = data_center_object
         self.identifier = identifier
         self._givens = givens
         self.deployed = False
@@ -20,6 +21,7 @@ class Server:
         numbers = [int(num) for num in s.split(",")]
         self.release_time_start = numbers[0]
         self.release_time_end = numbers[1]
+        self.capacity = self._givens.servers_df[self._givens.servers_df['server_generation'] == self.generation].iloc[0]['capacity']
 
         # Fetch server data once to avoid repeated calls
         self.server_data = self._givens.servers_df[self._givens.servers_df['server_generation'] == self.generation].iloc[0]
@@ -31,12 +33,8 @@ class Server:
             "type": self.generation,
             "capacity_used": self.server_data['capacity'] if self.deployed else 0,
             "uptime": self.operational_time,
-            "latency_sensitivity": self.latency_sensitivity
+            "latency_sensitivity": self.data_center_object.latency_sensitivity,
         }
-
-    @property
-    def capacity(self):
-        return self.server_data['capacity']
 
     @property
     def slots_needed(self):
@@ -64,15 +62,12 @@ class Server:
 
     @property
     def selling_price(self):
+        if not self.deployed:
+            return None
         # Ensure there is a price row available
-        price_row = self.selling_price_data[self.selling_price_data['latency_sensitivity'] == self.latency_sensitivity]
+        #print("<<<<<<HERE>>>>>>>", self.data_center_object.latency_sensitivity);
+        price_row = self.selling_price_data[self.selling_price_data['latency_sensitivity'] == self.data_center_object.latency_sensitivity]
         return price_row['selling_price'].iloc[0] if not price_row.empty else None
-
-    def age_server(self):
-        if self.deployed:
-            self.operational_time += 1
-            if self.operational_time >= self.life_expectancy:
-                self.decommission()
 
     def deploy(self):
         self.deployed = True
@@ -80,15 +75,18 @@ class Server:
 
     def decommission(self):
         self.deployed = False
-        print(f"Server {self.identifier} decommissioned.")
+        #print(f"Server {self.identifier} decommissioned.")
 
-    def update_life(self, time):
-        self.operational_time += time
+    def automate_remove_dead_cells(self):
         if self.operational_time >= self.life_expectancy:
             self.decommission()
 
+    def update_time_step(self, time):
+        self.operational_time += time
+
     def update(self):
-        self.update_life(1)
+        self.update_time_step(1)
+        self.automate_remove_dead_cells()
 
 class DataCenter:
     def __init__(self, givens, identifier):
@@ -96,18 +94,12 @@ class DataCenter:
         self.identifier = identifier
         self.datacenter_data = self._givens.datacenters_df[self._givens.datacenters_df['datacenter_id'] == identifier].iloc[0]
         self.servers = []
-
-    def deploy_server(self, server_type, quantity):
-        slots_needed = sum(self._givens.servers_df.loc[self._givens.servers_df['server_type'] == server_type, 'slots_size']) * quantity
-        available_slots = self.datacenter_data['slots_capacity'] - sum(s.slots_needed for s in self.servers if s.deployed)
-        if slots_needed <= available_slots:
-            for _ in range(quantity):
-                new_server = Server(self._givens, server_type, self.datacenter_data['latency_sensitivity'], self, f"{self.identifier}_new_{server_type}")
-                self.servers.append(new_server)
-                new_server.deploy()
-                print(f"Deployed server {server_type} in data center {self.identifier}")
-        else:
-            print(f"Not enough slots to deploy {quantity} servers of type {server_type}. Available slots: {available_slots}, needed: {slots_needed}")
+        self.empty_slots = self.datacenter_data['slots_capacity']
+        self.occupied_slots = 0
+        self.total_slots = self.datacenter_data['slots_capacity']
+        self.current_time_step = 0
+        self.cost_of_energy = self.datacenter_data['cost_of_energy']
+        self.latency_sensitivity = self.datacenter_data['latency_sensitivity']
 
     def get_total_maintenance_cost(self):
         return sum(server.maintenance_fee for server in self.servers if server.deployed)
@@ -137,47 +129,24 @@ class DataCenter:
             "utilization": self.calculate_utilization(),
             "servers": [server.status for server in self.servers]
         }
-
-    @property
-    def slots_capacity(self):
-        return self.datacenter_data['slots_capacity']
-
-    @property
-    def cost_of_energy(self):
-        return self.datacenter_data['cost_of_energy']
-
-    @property
-    def latency_sensitivity(self):
-        return self.datacenter_data['latency_sensitivity']
-
-    @property
-    def filled_slots(self):
-        return sum(server.slots_needed for server in self.servers if server.deployed)
-
-    @property
-    def empty_slots(self):
-        return self.slots_capacity - self.filled_slots
-
-    def add_server(self, server):
-        if self.empty_slots >= server.slots_needed:
-            self.servers.append(server)
-            server.deploy()
-            print(f"Server {server.generation} added to {self.identifier}")
-        else:
-            print("Error: Not enough slots to add this server")
-
-    def remove_server(self, server):
-        if server in self.servers:
-            server.decommission()
-            self.servers.remove(server)
-            print(f"Server {server.generation} removed from {self.identifier}")
-        else:
-            print("Error: Server not found in data center")
-
-    def update(self):
+    
+    def update_time_step(self):
         for server in self.servers:
             server.update()
-        current_utilization = self.calculate_utilization()
+
+    def update_slots(self):
+        self.update_empty_slots()
+
+    def update_empty_slots(self):
+        self.empty_slots = self.total_slots - sum(server.slots_needed for server in self.servers if server.deployed)
+    
+    def update_occupied_slots(self):
+        self.occupied_slots = self.total_slots - self.empty_slots
+    
+    def update(self):
+        self.update_time_step()
+        self.update_slots()
+        self.update_occupied_slots()
 
 class Inventory:
     def __init__(self, givens):
@@ -191,7 +160,7 @@ class Inventory:
         for dc in self.datacenters:
             utilization_summary = dc.utilization_summary()
             self.utilization_log.append((self.current_time_step, utilization_summary))
-            print(f"Logged utilization at time step {self.current_time_step} for data center {dc.identifier}: {utilization_summary['utilization']}%")
+            #print(f"Logged utilization at time step {self.current_time_step} for data center {dc.identifier}: {utilization_summary['utilization']}%")
 
     def get_all_datacenters_identifiers(self):
         return [dc.identifier for dc in self.datacenters]
@@ -227,116 +196,92 @@ class Inventory:
             return df.groupby('server_generation')['capacity'].sum().to_frame('capacity')
         return pd.DataFrame(columns=['capacity'])
 
-    def move_server(self, server_type, quantity, source_dc_id, target_dc_id):
-        source_dc = self.get_datacenter_by_id(source_dc_id)
-        target_dc = self.get_datacenter_by_id(target_dc_id)
-        print(f"Attempting to move {quantity} servers of type {server_type} from {source_dc_id} to {target_dc_id}.")
+    # def move_server(self, server_type, quantity, source_dc_id, target_dc_id):
+    #     source_dc = self.get_datacenter_by_id(source_dc_id)
+    #     target_dc = self.get_datacenter_by_id(target_dc_id)
+    #     print(f"Attempting to move {quantity} servers of type {server_type} from {source_dc_id} to {target_dc_id}.")
         
-        if source_dc and target_dc:
-            servers_to_move = [s for s in source_dc.servers if s.generation == server_type and s.deployed][:quantity]
-            print(f"Found {len(servers_to_move)} servers to move.")
+    #     if source_dc and target_dc:
+    #         servers_to_move = [s for s in source_dc.servers if s.generation == server_type and s.deployed][:quantity]
+    #         print(f"Found {len(servers_to_move)} servers to move.")
 
-            if len(servers_to_move) == quantity and all(target_dc.empty_slots >= s.slots_needed for s in servers_to_move):
-                for server in servers_to_move:
-                    source_dc.servers.remove(server)
-                    target_dc.servers.append(server)
-                    server.data_center = target_dc
-                    print(f"Successfully moved server {server.identifier} to {target_dc_id}.")
-                    self.expenses.add_moving_cost(server.cost_of_moving)
-                return True
-            else:
-                print(f"Not enough servers or slots. Available slots: {target_dc.empty_slots}")
-                return False
-        else:
-            print(f"Invalid data center IDs: {source_dc_id}, {target_dc_id}")
-            return False
-
-    # def add_server(self, server_type, quantity, datacenter_id):
-    #     datacenter = self.get_datacenter_by_id(datacenter_id)
-    #     if datacenter:
-    #         for _ in range(quantity):
-    #             if datacenter.empty_slots >= self._givens.servers_df.loc[self._givens.servers_df['server_type'] == server_type, 'slots_size'].iloc[0]:
-    #                 new_server = Server(self._givens, server_type, datacenter)
-    #                 datacenter.servers.append(new_server)
-    #                 new_server.deploy()
-    #                 print(f"Server {server_type} deployed in {datacenter_id}.")
-    #             else:
-    #                 print(f"Not enough slots to deploy server {server_type} in {datacenter_id}.")
-    #                 return False
-    #         return True
+    #         if len(servers_to_move) == quantity and all(target_dc.empty_slots >= s.slots_needed for s in servers_to_move):
+    #             for server in servers_to_move:
+    #                 source_dc.servers.remove(server)
+    #                 target_dc.servers.append(server)
+    #                 server.data_center = target_dc
+    #                 print(f"Successfully moved server {server.identifier} to {target_dc_id}.")
+    #                 self.expenses.add_moving_cost(server.cost_of_moving)
+    #             return True
+    #         else:
+    #             print(f"Not enough servers or slots. Available slots: {target_dc.empty_slots}")
+    #             return False
     #     else:
-    #         print(f"Data center {datacenter_id} not found.")
+    #         print(f"Invalid data center IDs: {source_dc_id}, {target_dc_id}")
     #         return False
 
-    def add_server(self, server_type, quantity, datacenter_id):
+    def add_server(self, server_generation, quantity, datacenter_id):
         datacenter = self.get_datacenter_by_id(datacenter_id)
         if not datacenter:
-            print(f"Data center DC{datacenter_id} not found.")
+            #print(f"Data center DC{datacenter_id} not found.")
             return False
 
         # Check if the server type exists in the DataFrame
+        server_type = f"{server_generation}".removesuffix(f".S{server_generation[-1]}")
+        #print(f"<<<BUY>>>Server type: {server_type}")
         filtered_df = self._givens.servers_df[self._givens.servers_df['server_type'] == server_type]
+        #print(self._givens.servers_df)
         if filtered_df.empty:
-            print(f"Server type {server_type} not found in the database.")
-            os._exit(1)
-            return False
+            #print(f"Server type {server_type} not found in the database.")
+            return []
 
         server_info = filtered_df.iloc[0]
         slots_needed = server_info['slots_size']
+        #print(f"<<<BUY>>>Slots needed: {slots_needed}")
         
         if datacenter.empty_slots < slots_needed * quantity:
-            print(f"Not enough slots to deploy {quantity} servers of type {server_type} in data center DC{datacenter_id}. Needed: {slots_needed * quantity}, Available: {datacenter.empty_slots}")
-            return False
-
+            #print(f"Not enough slots to deploy {quantity} servers of type {server_type} in data center DC{datacenter_id}. Needed: {slots_needed * quantity}, Available: {datacenter.empty_slots}")
+            return []
+        
+        final = []
         for _ in range(quantity):
+            details = []
             # Create a new server with a unique UUID and datacenter identifier
-            new_server = Server(self._givens, server_type, f"DC{datacenter_id}", uuid.uuid4().hex)
+            new_server = Server(self._givens, server_generation, f"DC{datacenter_id}", datacenter, uuid.uuid4().hex)
+            #print(f"<<<BUY>>><<<<CAPACITY>>>> {new_server.capacity}")
             datacenter.servers.append(new_server)
+            datacenter.update_slots()
             new_server.deploy()
-            print(f"Server {new_server.identifier} of type {server_type} deployed in data center DC{datacenter_id}.")
+            details.append(new_server.identifier)
+            details.append(new_server.generation)
+            details.append(new_server.data_center)
+            details.append(new_server.data_center_object.latency_sensitivity)
+            #print(f"Server {new_server.identifier} of type {server_type} deployed in data center DC{datacenter_id}.")
+            final.append(details)
 
-        return True
+        # Update Empty Slots
+        #print(f"Empty slots before: {datacenter.empty_slots}")
+        datacenter.update_empty_slots()
+        #print(f"Empty slots after: {datacenter.empty_slots}")
 
-    # def add_server(self, server_index, quantity, datacenter_id, moving=False):
+        return final
+
+    # def remove_server(self, server_type, quantity, datacenter_id):
     #     datacenter = self.get_datacenter_by_id(datacenter_id)
-    #     server_type = f"CPU.S{server_index + 1}" if server_index < 4 else f"GPU.S{server_index - 3}"
-    #     slots_needed = 2 if server_index < 4 else 4
     #     if datacenter:
-    #         success = False
-    #         for quant in range(quantity):
-    #             if datacenter.empty_slots >= slots_needed:
-    #                 unique_id = f"{server_type}_{numpy.random.randint(1000)}_{quant}"
-    #                 server_new = Server(self._givens, server_type, datacenter.latency_sensitivity, datacenter, unique_id)
-    #                 datacenter.servers.append(server_new)
-    #                 server_new.deploy()
-    #                 if not moving:
-    #                     self.expenses.add_purchase_cost(server_new.purchase_price)
-    #                     #self.expenses.add_returns_from_server(server_new.selling_price)
-    #                 success = True
-    #             else:
-    #                 print(f"Not enough slots to deploy server {server_type} in {datacenter_id}.")
-    #                 return False  # Indicating failure
-    #         return success  # Return True if at least one server was added successfully
+    #         matching_servers = [server for server in datacenter.servers if server.generation == server_type]
+    #         if len(matching_servers) >= quantity:
+    #             servers_to_remove = random.sample(matching_servers, quantity)
+    #             for server in servers_to_remove:
+    #                 datacenter.servers.remove(server)
+    #                 server.decommission()
+    #             return True  # Indicating success
+    #         else:
+    #             print(f"Not enough servers of type {server_type} to remove {quantity} units from data center {datacenter_id}.")
+    #             return False  # Indicating failure
     #     else:
-    #         print(f"Data center {datacenter_id} not found.")
+    #         print(f"Data center not found: {datacenter_id}")
     #         return False  # Indicating failure
-
-    def remove_server(self, server_type, quantity, datacenter_id):
-        datacenter = self.get_datacenter_by_id(datacenter_id)
-        if datacenter:
-            matching_servers = [server for server in datacenter.servers if server.generation == server_type]
-            if len(matching_servers) >= quantity:
-                servers_to_remove = random.sample(matching_servers, quantity)
-                for server in servers_to_remove:
-                    datacenter.servers.remove(server)
-                    server.decommission()
-                return True  # Indicating success
-            else:
-                print(f"Not enough servers of type {server_type} to remove {quantity} units from data center {datacenter_id}.")
-                return False  # Indicating failure
-        else:
-            print(f"Data center not found: {datacenter_id}")
-            return False  # Indicating failure
 
     def update(self):
         """ Advance all data centers and their servers one time step forward. """
@@ -356,7 +301,7 @@ class Inventory:
             success = False
         # Log expenses
         snapshot = self.expenses.get_snapshot()
-        print(f"Snapshot of expenses at time step {self.current_time_step} after {action_type}: {snapshot}")
+        #print(f"Snapshot of expenses at time step {self.current_time_step} after {action_type}: {snapshot}")
         # Log utilization after the action
         self.log_utilization()
         return success  # Return whether the action was successful
@@ -375,27 +320,27 @@ class ExpensesReturns:
     def add_energy_cost(self, amount):
         self.total_costs['energy_cost'] += amount
         self._log_expense('energy_cost', amount)
-        print(f"Added energy cost: {amount}, Total energy cost: {self.total_costs['energy_cost']}")
+        #print(f"Added energy cost: {amount}, Total energy cost: {self.total_costs['energy_cost']}")
 
     def add_maintenance_cost(self, amount):
         self.total_costs['maintenance_cost'] += amount
         self._log_expense('maintenance_cost', amount)
-        print(f"Added maintenance cost: {amount}, Total maintenance cost: {self.total_costs['maintenance_cost']}")
+        #print(f"Added maintenance cost: {amount}, Total maintenance cost: {self.total_costs['maintenance_cost']}")
 
     def add_purchase_cost(self, amount):
         self.total_costs['purchase_cost'] += amount
         self._log_expense('purchase_cost', amount)
-        print(f"Added purchase cost: {amount}, Total purchase cost: {self.total_costs['purchase_cost']}")
+        #print(f"Added purchase cost: {amount}, Total purchase cost: {self.total_costs['purchase_cost']}")
 
     def add_returns(self, amount):
         self.total_costs['returns'] += amount
         self._log_expense('returns', amount)
-        print(f"Added demand met cost: {amount}, Total demand met cost: {self.total_costs['returns']}")
+        #print(f"Added demand met cost: {amount}, Total demand met cost: {self.total_costs['returns']}")
 
     def add_moving_cost(self, amount):
         self.total_costs['moving_cost'] += amount
         self._log_expense('moving_cost', amount)
-        print(f"Added moving cost: {amount}, Total moving cost: {self.total_costs['moving_cost']}")
+        #print(f"Added moving cost: {amount}, Total moving cost: {self.total_costs['moving_cost']}")
 
     def _log_expense(self, expense_type, amount):
         """Log the expense with a timestamp or action marker."""

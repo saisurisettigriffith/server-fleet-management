@@ -1,464 +1,37 @@
-Filename: Classes.py
-Path: Classes.py
-
-import os
-import numpy
-import pandas as pd
-from utils import *
-from evaluation import *
-import random
-
-class Server:
-    def __init__(self, givens, generation, latency, data_center, identifier):
-        self.generation = generation
-        self.latency_sensitivity = latency
-        self.data_center = data_center
-        self.identifier = identifier
-        self._givens = givens
-        self.deployed = False
-        self.operational_time = 0
-        self.release_time = self._givens.servers_df[self._givens.servers_df['server_generation'] == self.generation].iloc[0]['release_time']
-        s = self.release_time.strip("[]")
-        numbers = [int(num) for num in s.split(",")]
-        self.release_time_start = numbers[0]
-        self.release_time_end = numbers[1]
-
-        # Fetch server data once to avoid repeated calls
-        self.server_data = self._givens.servers_df[self._givens.servers_df['server_generation'] == self.generation].iloc[0]
-        self.selling_price_data = self._givens.selling_prices_df[self._givens.selling_prices_df['server_generation'] == self.generation]
-
-    @property
-    def status(self):
-        return {
-            "type": self.generation,
-            "capacity_used": self.server_data['capacity'] if self.deployed else 0,
-            "uptime": self.operational_time,
-            "latency_sensitivity": self.latency_sensitivity
-        }
-
-    @property
-    def capacity(self):
-        return self.server_data['capacity']
-
-    @property
-    def slots_needed(self):
-        return self.server_data['slots_size']
-
-    @property
-    def energy_consumption(self):
-        return self.server_data['energy_consumption']
-
-    @property
-    def purchase_price(self):
-        return self.server_data['purchase_price']
-
-    @property
-    def life_expectancy(self):
-        return self.server_data['life_expectancy']
-
-    @property
-    def cost_of_moving(self):
-        return self.server_data['cost_of_moving']
-
-    @property
-    def maintenance_fee(self):
-        return self.server_data['average_maintenance_fee']
-
-    @property
-    def selling_price(self):
-        # Ensure there is a price row available
-        price_row = self.selling_price_data[self.selling_price_data['latency_sensitivity'] == self.latency_sensitivity]
-        return price_row['selling_price'].iloc[0] if not price_row.empty else None
-
-    def age_server(self):
-        if self.deployed:
-            self.operational_time += 1
-            if self.operational_time >= self.life_expectancy:
-                self.decommission()
-
-    def deploy(self):
-        self.deployed = True
-        self.operational_time = 0
-
-    def decommission(self):
-        self.deployed = False
-        print(f"Server {self.identifier} decommissioned.")
-
-    def update_life(self, time):
-        self.operational_time += time
-        if self.operational_time >= self.life_expectancy:
-            self.decommission()
-
-    def update(self):
-        self.update_life(1)
-
-class DataCenter:
-    def __init__(self, givens, identifier):
-        self._givens = givens
-        self.identifier = identifier
-        self.datacenter_data = self._givens.datacenters_df[self._givens.datacenters_df['datacenter_id'] == identifier].iloc[0]
-        self.servers = []
-
-    def deploy_server(self, server_type, quantity):
-        slots_needed = sum(self._givens.servers_df.loc[self._givens.servers_df['server_type'] == server_type, 'slots_size']) * quantity
-        available_slots = self.datacenter_data['slots_capacity'] - sum(s.slots_needed for s in self.servers if s.deployed)
-        if slots_needed <= available_slots:
-            for _ in range(quantity):
-                new_server = Server(self._givens, server_type, self.datacenter_data['latency_sensitivity'], self, f"{self.identifier}_new_{server_type}")
-                self.servers.append(new_server)
-                new_server.deploy()
-                print(f"Deployed server {server_type} in data center {self.identifier}")
-        else:
-            print(f"Not enough slots to deploy {quantity} servers of type {server_type}. Available slots: {available_slots}, needed: {slots_needed}")
-
-    def get_total_maintenance_cost(self):
-        return sum(server.maintenance_fee for server in self.servers if server.deployed)
-
-    def get_total_energy_cost(self):
-        return sum(server.energy_consumption for server in self.servers if server.deployed) * self.datacenter_data['cost_of_energy']
-
-    def summary(self):
-        return {
-            "total_capacity": sum(server.capacity for server in self.servers),
-            "available_capacity": sum(server.capacity for server in self.servers if not server.deployed),
-            "energy_cost": self.get_total_energy_cost(),
-            "servers": [server.status for server in self.servers]
-        }
-    
-    def calculate_utilization(self):
-        total_capacity = sum(server.capacity for server in self.servers)
-        used_capacity = sum(server.capacity for server in self.servers if server.deployed)
-        utilization = (used_capacity / total_capacity) * 100 if total_capacity > 0 else 0
-        return utilization
-
-    def utilization_summary(self):
-        return {
-            "data_center_id": self.identifier,
-            "total_capacity": sum(server.capacity for server in self.servers),
-            "used_capacity": sum(server.capacity for server in self.servers if server.deployed),
-            "utilization": self.calculate_utilization(),
-            "servers": [server.status for server in self.servers]
-        }
-
-    @property
-    def slots_capacity(self):
-        return self.datacenter_data['slots_capacity']
-
-    @property
-    def cost_of_energy(self):
-        return self.datacenter_data['cost_of_energy']
-
-    @property
-    def latency_sensitivity(self):
-        return self.datacenter_data['latency_sensitivity']
-
-    @property
-    def filled_slots(self):
-        return sum(server.slots_needed for server in self.servers if server.deployed)
-
-    @property
-    def empty_slots(self):
-        return self.slots_capacity - self.filled_slots
-
-    def add_server(self, server):
-        if self.empty_slots >= server.slots_needed:
-            self.servers.append(server)
-            server.deploy()
-            print(f"Server {server.generation} added to {self.identifier}")
-        else:
-            print("Error: Not enough slots to add this server")
-
-    def remove_server(self, server):
-        if server in self.servers:
-            server.decommission()
-            self.servers.remove(server)
-            print(f"Server {server.generation} removed from {self.identifier}")
-        else:
-            print("Error: Server not found in data center")
-
-    def update(self):
-        for server in self.servers:
-            server.update()
-        current_utilization = self.calculate_utilization()
-
-class Inventory:
-    def __init__(self, givens):
-        self._givens = givens
-        self.datacenters = [DataCenter(givens, dc_id) for dc_id in givens.datacenters_df['datacenter_id']]
-        self.current_time_step = 0
-        self.expenses = ExpensesReturns()
-        self.utilization_log = []
-
-    def log_utilization(self):
-        for dc in self.datacenters:
-            utilization_summary = dc.utilization_summary()
-            self.utilization_log.append((self.current_time_step, utilization_summary))
-            print(f"Logged utilization at time step {self.current_time_step} for data center {dc.identifier}: {utilization_summary['utilization']}%")
-
-    def get_all_datacenters_identifiers(self):
-        return [dc.identifier for dc in self.datacenters]
-
-    def get_datacenter_by_id(self, identifier):
-        """ Returns the datacenter object by its identifier. """
-        return next((dc for dc in self.datacenters if dc.identifier == identifier), None)
-
-    # def get_total_costs(self):
-    #     energy_cost = sum(dc.get_total_energy_cost() for dc in self.datacenters)
-    #     maintenance_cost = sum(dc.get_total_maintenance_cost() for dc in self.datacenters)
-    #     return {
-    #         'energy_cost': energy_cost,
-    #         'maintenance_cost': maintenance_cost,
-    #         'purchase_cost': self.expenses.total_costs['purchase_cost'],
-    #         'moving_cost': self.expenses.total_costs['moving_cost']
-    #     }
-
-    def get_total_costs(self):
-        # Sum up all the costs tracked in the expenses
-        energy_cost = sum(dc.get_total_energy_cost() for dc in self.datacenters)
-        maintenance_cost = sum(dc.get_total_maintenance_cost() for dc in self.datacenters)
-        return energy_cost + maintenance_cost + self.expenses.get_total_expenses()
-
-    def get_time_step(self):
-        return self.current_time_step
-
-    def get_utilization_log(self):
-        return self.utilization_log
-
-    def get_aggregated_server_capacities(self):
-        """ Aggregates server capacities by server generation across all datacenters. """
-        capacity_data = []
-        for dc in self.datacenters:
-            for server in dc.servers:
-                if server.deployed:
-                    capacity_data.append({
-                        'server_generation': server.generation,
-                        'capacity': server.capacity
-                    })
-        df = pd.DataFrame(capacity_data)
-        if not df.empty:
-            return df.groupby('server_generation')['capacity'].sum().to_frame('capacity')
-        return pd.DataFrame(columns=['capacity'])
-
-    def move_server(self, server_type, quantity, source_dc_id, target_dc_id):
-        source_dc = self.get_datacenter_by_id(source_dc_id)
-        target_dc = self.get_datacenter_by_id(target_dc_id)
-        print(f"Attempting to move {quantity} servers of type {server_type} from {source_dc_id} to {target_dc_id}.")
-        
-        if source_dc and target_dc:
-            servers_to_move = [s for s in source_dc.servers if s.generation == server_type and s.deployed][:quantity]
-            print(f"Found {len(servers_to_move)} servers to move.")
-
-            if len(servers_to_move) == quantity and all(target_dc.empty_slots >= s.slots_needed for s in servers_to_move):
-                for server in servers_to_move:
-                    source_dc.servers.remove(server)
-                    target_dc.servers.append(server)
-                    server.data_center = target_dc
-                    print(f"Successfully moved server {server.identifier} to {target_dc_id}.")
-                    self.expenses.add_moving_cost(server.cost_of_moving)
-                return True
-            else:
-                print(f"Not enough servers or slots. Available slots: {target_dc.empty_slots}")
-                return False
-        else:
-            print(f"Invalid data center IDs: {source_dc_id}, {target_dc_id}")
-            return False
-
-
-    def add_server(self, server_index, quantity, datacenter_id, moving=False):
-        datacenter = self.get_datacenter_by_id(datacenter_id)
-        server_type = f"CPU.S{server_index + 1}" if server_index < 4 else f"GPU.S{server_index - 3}"
-        slots_needed = 2 if server_index < 4 else 4
-        if datacenter:
-            success = False
-            for quant in range(quantity):
-                if datacenter.empty_slots >= slots_needed:
-                    unique_id = f"{server_type}_{numpy.random.randint(1000)}_{quant}"
-                    server_new = Server(self._givens, server_type, datacenter.latency_sensitivity, datacenter, unique_id)
-                    datacenter.servers.append(server_new)
-                    server_new.deploy()
-                    if not moving:
-                        self.expenses.add_purchase_cost(server_new.purchase_price)
-                        #self.expenses.add_returns_from_server(server_new.selling_price)
-                    success = True
-                else:
-                    print(f"Not enough slots to deploy server {server_type} in {datacenter_id}.")
-                    return False  # Indicating failure
-            return success  # Return True if at least one server was added successfully
-        else:
-            print(f"Data center {datacenter_id} not found.")
-            return False  # Indicating failure
-
-    def remove_server(self, server_type, quantity, datacenter_id):
-        datacenter = self.get_datacenter_by_id(datacenter_id)
-        if datacenter:
-            matching_servers = [server for server in datacenter.servers if server.generation == server_type]
-            if len(matching_servers) >= quantity:
-                servers_to_remove = random.sample(matching_servers, quantity)
-                for server in servers_to_remove:
-                    datacenter.servers.remove(server)
-                    server.decommission()
-                return True  # Indicating success
-            else:
-                print(f"Not enough servers of type {server_type} to remove {quantity} units from data center {datacenter_id}.")
-                return False  # Indicating failure
-        else:
-            print(f"Data center not found: {datacenter_id}")
-            return False  # Indicating failure
-
-    def update(self):
-        """ Advance all data centers and their servers one time step forward. """
-        self.current_time_step += 1
-        for dc in self.datacenters:
-            dc.update()
-        # Log utilization at this time step
-        self.log_utilization()
-
-    def perform_action(self, action_type, *args):
-        """ Perform an action and log both expenses and utilization """
-        if action_type == 'add_server':
-            success = self.add_server(*args)
-        elif action_type == 'move_server':
-            success = self.move_server(*args)
-        else:
-            success = False
-        # Log expenses
-        snapshot = self.expenses.get_snapshot()
-        print(f"Snapshot of expenses at time step {self.current_time_step} after {action_type}: {snapshot}")
-        # Log utilization after the action
-        self.log_utilization()
-        return success  # Return whether the action was successful
-
-class ExpensesReturns:
-    def __init__(self):
-        self.total_costs = {
-            'energy_cost': 0,
-            'maintenance_cost': 0,
-            'purchase_cost': 0,
-            'moving_cost': 0,
-            'returns': 0
-        }
-        self.expense_log = []  # Log of expenses over time
-
-    def add_energy_cost(self, amount):
-        self.total_costs['energy_cost'] += amount
-        self._log_expense('energy_cost', amount)
-        print(f"Added energy cost: {amount}, Total energy cost: {self.total_costs['energy_cost']}")
-
-    def add_maintenance_cost(self, amount):
-        self.total_costs['maintenance_cost'] += amount
-        self._log_expense('maintenance_cost', amount)
-        print(f"Added maintenance cost: {amount}, Total maintenance cost: {self.total_costs['maintenance_cost']}")
-
-    def add_purchase_cost(self, amount):
-        self.total_costs['purchase_cost'] += amount
-        self._log_expense('purchase_cost', amount)
-        print(f"Added purchase cost: {amount}, Total purchase cost: {self.total_costs['purchase_cost']}")
-
-    def add_returns(self, amount):
-        self.total_costs['returns'] += amount
-        self._log_expense('returns', amount)
-        print(f"Added demand met cost: {amount}, Total demand met cost: {self.total_costs['returns']}")
-
-    def add_moving_cost(self, amount):
-        self.total_costs['moving_cost'] += amount
-        self._log_expense('moving_cost', amount)
-        print(f"Added moving cost: {amount}, Total moving cost: {self.total_costs['moving_cost']}")
-
-    def _log_expense(self, expense_type, amount):
-        """Log the expense with a timestamp or action marker."""
-        self.expense_log.append({
-            'type': expense_type,
-            'amount': amount,
-            'total_after_action': self.total_costs[expense_type],
-            'timestamp': len(self.expense_log)  # Assuming this represents the time step or action count
-        })
-
-    def get_total_expenses(self):
-        return sum(self.total_costs.values())
-
-    def summary(self):
-        return self.total_costs
-
-    def get_expense_log(self):
-        """Returns the entire expense log."""
-        return self.expense_log
-
-    def get_snapshot(self):
-        """Takes a snapshot of the current total costs."""
-        return {key: value for key, value in self.total_costs.items()}
-
-class ProblemData:
-    def __init__(self):
-        self.datacenters_df, self.servers_df, self.selling_prices_df = load_problem_data_without_demand()
-        print("IMPORTANT: The ProblemData Class should not be changed. It is used to load the data for the problem.")
-        print("Columns and Head of ProblemData: datacenters_df: ")
-        print(self.datacenters_df.columns)
-        print(self.datacenters_df)
-        print("Columns and Head of ProblemData: servers_df: ")
-        print(self.servers_df.columns)
-        print(self.servers_df)
-        print("Columns and Head of ProblemData: selling_prices_df: ")
-        print(self.selling_prices_df.columns)
-        print(self.selling_prices_df)
-        print("IMPORTANT: The ProblemData Class should not be changed. It is used to load the data for the problem.")
-
-class InputDemandDataActual:
-    def __init__(self, seed=None):
-        np.random.seed(seed)
-        self.sample_demand_data_df = load_demand()
-        self.demand_data_df = self.adjust_demand_with_hackathon_method(self.sample_demand_data_df)
-        print("IMPORTANT: The InputDemandDataActual AND YOUR ORIGINAL COPIES should not be changed BECAUSE THE AGENT NEEDS TO BE TRAINED ON THE ORIGINAL INPUT FORMAT HOW THEY APPEAR.")
-        print("Columns and Head of Hackathon Input Format demand data: ")
-        print(self.demand_data_df.columns)
-        print(self.demand_data_df.head())
-        print("IMPORTANT: The InputDemandDataActual AND YOUR ORIGINAL COPIES should not be changed BECAUSE THE AGENT NEEDS TO BE TRAINED ON THE ORIGINAL INPUT FORMAT HOW THEY APPEAR.")
-        '''
-        Logic on the other parts of the project need to be adjusted to understand the format of the Hackathon Input Format demand data.
-        This Class or the input data should not be changed.
-        Change how you handle the data in the other parts of the project with regards to required_capacity.
-        '''
-
-    def adjust_demand_with_hackathon_method(self, demand_df):
-        return get_actual_demand(demand_df)
-
 Filename: application_training.py
 Path: application_training.py
 
 from stable_baselines3 import PPO
 from envs.server_management_env import ServerManagementEnv
+from stable_baselines3.common.vec_env import DummyVecEnv
 from Classes import *
+import os 
 
 def train_model():
     givens = ProblemData()
-    actual_demand = InputDemandDataActual(seed=42)
-    env = ServerManagementEnv(givens, actual_demand)
-    print("Printing Actual Demands:")
-    print(actual_demand.demand_data_df)
-    print(env)
-    sample = Inventory(givens)
-    print(sample.get_all_datacenters_identifiers())
-    source_dc_id = 1
-    source_dc_id = "DC" + str(source_dc_id)
-    print(source_dc_id) 
+    actual_demand = InputDemandDataActual(seed=22)
+    env = DummyVecEnv([lambda: ServerManagementEnv(givens, actual_demand)])
 
-    # Using a model to train
-    model = PPO('MlpPolicy', env, verbose=1)
+    model_path = "server_management_rl_model.zip"
+    if os.path.exists(model_path):
+        model = PPO.load(model_path, env=env)
+        print("Model loaded from saved state.")
+    else:
+        model = PPO('MlpPolicy', env, verbose=1)
+        print("Training new model.")
 
     obs = env.reset()
-    print("Initial Observation:", obs)
-    
-    # Perform multiple stepsy
-    for _ in range(671):  # Define the number of steps or use a more complex termination condition
+    step_count = 0
+    for _ in range(40):  # Define the number of steps or use a more complex termination condition
         action = model.predict(obs, deterministic=True)[0]
-        #print(f"Predicted Action: {action}")
-        obs, reward, done, info = env.step(action)
-        #print(f"Action: {action}, Observation: {obs}, Reward: {reward}, Done: {done}")
-
-        if done:
+        obs, reward, dones, info = env.step(action)
+        step_count += 1
+        print(f"Step {step_count}: Reward={reward}, Done={dones}")
+        if dones[0]:
             obs = env.reset()  # Reset the environment when a terminal state is reached
 
     model.save("server_management_rl_model")
-    print("Training completed and model saved.")    
+    print("Training completed and model saved.")
 
 if __name__ == "__main__":
     print("Training the model...")
@@ -483,38 +56,62 @@ class ServerManagementEnv(gym.Env):
         self.inventory = Inventory(givens)
         self.num_data_centers = len(self.inventory.datacenters)
         self.num_server_types = len(givens.servers_df['server_type'].unique())
+        self.baught_servers_time_step = []
+        self.total_capacity_demanded = 0
+        self.total_capacity_met_due_to_baught = 0
+        self.total_capacity_met_actual = 0
+        self.max_time_steps = 100
         # Hardcoded release times based on the provided CSV
 
         # Define your action and observation spaces based on these attributes
-        max_quantity = 10
+        max_quantity = 100
         self.action_space = spaces.MultiDiscrete([
-            4,  # action type: buy, dismiss, move, hold
-            *([max_quantity] * self.num_server_types * self.num_data_centers),  # Buy quantities for each type at each DC
-            *([max_quantity] * self.num_server_types * self.num_data_centers),  # Dismiss quantities for each type at each DC
-            *([self.num_data_centers] * self.num_server_types),  # Source DC for each server type
-            *([self.num_data_centers] * self.num_server_types),  # Target DC for each server type
-            *([max_quantity] * self.num_server_types)  # Quantity to move for each server type
+            1,
+            self.num_server_types * self.num_data_centers,  # "magic code" for each server type at each DC - BUY
+            max_quantity, # How Many to buy
+            self.num_server_types * self.num_data_centers,  # "magic code" for each server type at each DC - DISMISS
+            max_quantity, # How Many to dismiss
+            self.num_data_centers * self.num_server_types,  # "magic code" for each server type at each DC - MOVE.Source
+            4,  # "magic code" for each server type at each DC - MOVE.Target
+            max_quantity, # How Many to move
         ])
         self.observation_shape = 55  # Set this to the expected max size
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_shape,), dtype=np.float64)
         self.state = self.reset()
 
-    def get_observation_space_size(self):
-        # Modify this method to reflect the size of your observation space
-        num_state_variables = 5 * self.num_data_centers + 2  # Adjust for the number of state variables you are using
-        return num_state_variables + 2 + 8
+    def reset(self, **kwargs):
+        # Handle potential arguments like 'seed' if necessary
+        if 'seed' in kwargs:
+            np.random.seed(kwargs['seed'])
 
-    def reset(self):
         self.state = self.initialize_environment_state()
-        return self.convert_state_to_observation(self.state)
+        observation = self.convert_state_to_observation(self.state)
+        return observation, {}  # Return an empty dictionary as the second value
 
-    # Example mapping
 
 
     def initialize_environment_state(self):
         state = {}
         total_profit = 0
         total_utilization = 0
+
+        server_generation_map = {
+            "CPU.S1": 1,
+            "CPU.S2": 2,
+            "CPU.S3": 3,
+            "CPU.S4": 4,
+            "GPU.S1": 5,
+            "GPU.S2": 6,
+            "GPU.S3": 7,
+            "GPU.S4": 8
+        }
+
+        server_dataceneter_map = {
+            1: {"Type": "CPU", "Generation": "1", "DC": 1}, 2: {"Type": "CPU", "Generation": "2", "DC": 1}, 3: {"Type": "CPU", "Generation": "3", "DC": 1}, 4: {"Type": "CPU", "Generation": "4", "DC": 1}, 5: {"Type": "GPU", "Generation": "1", "DC": 1}, 6: {"Type": "GPU", "Generation": "2", "DC": 1}, 7: {"Type": "GPU", "Generation": "3", "DC": 1},
+            8: {"Type": "CPU", "Generation": "1", "DC": 2}, 9: {"Type": "CPU", "Generation": "2", "DC": 2}, 10: {"Type": "CPU", "Generation": "3", "DC": 2}, 11: {"Type": "CPU", "Generation": "4", "DC": 2}, 12: {"Type": "GPU", "Generation": "1", "DC": 2}, 13: {"Type": "GPU", "Generation": "2", "DC": 2}, 14: {"Type": "GPU", "Generation": "3", "DC": 2},
+            15: {"Type": "CPU", "Generation": "1", "DC": 3}, 16: {"Type": "CPU", "Generation": "2", "DC": 3}, 17: {"Type": "CPU", "Generation": "3", "DC": 3}, 18: {"Type": "CPU", "Generation": "4", "DC": 3}, 19: {"Type": "GPU", "Generation": "1", "DC": 3}, 20: {"Type": "GPU", "Generation": "2", "DC": 3}, 21: {"Type": "GPU", "Generation": "3", "DC": 3},
+            22: {"Type": "CPU", "Generation": "1", "DC": 4}, 23: {"Type": "CPU", "Generation": "2", "DC": 4}, 24: {"Type": "CPU", "Generation": "3", "DC": 4}, 25: {"Type": "CPU", "Generation": "4", "DC": 4}, 26: {"Type": "GPU", "Generation": "1", "DC": 4}, 27: {"Type": "GPU", "Generation": "2", "DC": 4}, 28: {"Type": "GPU", "Generation": "3", "DC": 4}
+        }
 
         for i, dc in enumerate(self.inventory.datacenters):
             dc_id = dc.identifier
@@ -525,17 +122,6 @@ class ServerManagementEnv(gym.Env):
             state[f"{dc_id}_UTILIZATION"] = dc.calculate_utilization()
             total_utilization += dc.calculate_utilization()
 
-            server_generation_map = {
-                "CPU.S1": 1,
-                "CPU.S2": 2,
-                "CPU.S3": 3,
-                "CPU.S4": 4,
-                "GPU.S1": 5,
-                "GPU.S2": 6,
-                "GPU.S3": 7,
-                "GPU.S4": 8
-            }
-
         # Add demand data to the state with numerical encoding for server generation
         for idx, row in self.current_demand_rows.iterrows():
             server_generation = row['server_generation']
@@ -545,13 +131,14 @@ class ServerManagementEnv(gym.Env):
             # Convert server generation to its mapped numerical value
             state[f"INPUT_DEMAND_CHIP_{server_generation}"] = server_generation_map[server_generation]
 
-        total_costs = self.inventory.expenses.get_total_expenses()
-        total_revenue = sum(s.selling_price for dc in self.inventory.datacenters for s in dc.servers if s.deployed)
-        total_profit = total_revenue - total_costs
-        state["TOTAL_REVENUE"] = total_revenue
-        state["TOTAL_COSTS"] = total_costs
-        state["/\ TOTAL_PROFIT"] = total_profit
-        state["/\ TOTAL_UTILIZATION"] = total_utilization / self.num_data_centers if self.num_data_centers > 0 else 0
+        #total_costs = self.inventory.expenses.get_total_expenses()
+        #total_revenue = sum(s.selling_price for dc in self.inventory.datacenters for s in dc.servers if s.deployed)
+        #total_profit = total_revenue - total_costs
+        #state["TOTAL_REVENUE"] = total_revenue
+        #state["TOTAL_COSTS"] = total_costs
+        state["TOTAL_DEMAND_MET_ACTUAL"] = self.total_capacity_met_actual
+        state["TOTAL_DEMAND_MET_DUE_TO_BOUGHT"] = self.total_capacity_met_due_to_baught
+        #state["TOTAL_UTILIZATION"] = total_utilization / self.num_data_centers if self.num_data_centers > 0 else 0
 
         return state
 
@@ -560,142 +147,327 @@ class ServerManagementEnv(gym.Env):
         state_keys = sorted(state.keys())
         state_values = np.array([state[key] for key in state_keys])
         
-        observation[:len(state_values)] = state_values  # Fill in the observation with the state values
-        
-        # Print observation keys and values
-        print("Observation Keys and Values:")
-        for key, value in zip(state_keys, observation):
-            print(f"{key}: {value}")
+        observation[:len(state_values)] = state_values  # Fill in the observation with the state values        
+        # # Print observation keys and values
+        # print("Observation Keys and Values:")
+        # for key, value in zip(state_keys, observation):
+        #     print(f"{key}: {value}")
         
         return observation
-
-
-
-    def step(self, action):
-        print("Step function in ServerManagementEnv called")
-        action_type = action[0]
-        print("Action type:", action_type)
-        reward = 0
     
+    def step(self, action):
+        total_action_array_elements = 23
 
-        # Define action parsing offsets based on the action space configuration
-        buy_actions = action[1:self.num_server_types * self.num_data_centers + 1]
-        dismiss_actions = action[self.num_server_types * self.num_data_centers + 1:2 * self.num_server_types * self.num_data_centers + 1]
-        move_source_dcs = action[2 * self.num_server_types * self.num_data_centers + 1:3 * self.num_server_types * self.num_data_centers + 1]
-        move_target_dcs = action[3 * self.num_server_types * self.num_data_centers + 1:4 * self.num_server_types * self.num_data_centers + 1]
-        move_quantities = action[4 * self.num_server_types * self.num_data_centers + 1:]
-
-            # Print action keys and values
-        print("Action Keys and Values:")
-        print(f"Action Type: {action_type}")
-        for i, value in enumerate(buy_actions):
-            print(f"Buy Action {i}: {value}")
-        for i, value in enumerate(dismiss_actions):
-            print(f"Dismiss Action {i}: {value}")
-        for i, value in enumerate(move_source_dcs):
-            print(f"Move Source DC {i}: {value}")
-        for i, value in enumerate(move_target_dcs):
-            print(f"Move Target DC {i}: {value}")
-        for i, value in enumerate(move_quantities):
-            print(f"Move Quantity {i}: {value}")
-        
-        print("DONEEE")
-
-        return False
-
-        release_times = {
-            'CPU.S1': (1, 60),
-            'CPU.S2': (37, 96),
-            'CPU.S3': (73, 132),
-            'CPU.S4': (109, 168),
-            'GPU.S1': (1, 72),
-            'GPU.S2': (49, 120),
-            'GPU.S3': (97, 168)
+        # Define mappings
+        server_generation_map = {
+            "CPU.S1": 1,
+            "CPU.S2": 2,
+            "CPU.S3": 3,
+            "CPU.S4": 4,
+            "GPU.S1": 5,
+            "GPU.S2": 6,
+            "GPU.S3": 7,
+            "GPU.S4": 8
         }
 
-        if action_type == 0:  # Buy
-            for idx, qty in enumerate(buy_actions):
-                if qty > 0:
-                    server_type_idx = idx % self.num_server_types
-                    server_type = f'CPU.S{server_type_idx + 1}' if server_type_idx < 4 else f'GPU.S{server_type_idx - 3 + 1}'
+        server_datacenter_map = {
+            1: {"Type": "CPU", "Generation": "1", "DC": 1}, 2: {"Type": "CPU", "Generation": "2", "DC": 1}, 3: {"Type": "CPU", "Generation": "3", "DC": 1}, 4: {"Type": "CPU", "Generation": "4", "DC": 1}, 5: {"Type": "GPU", "Generation": "1", "DC": 1}, 6: {"Type": "GPU", "Generation": "2", "DC": 1}, 7: {"Type": "GPU", "Generation": "3", "DC": 1},
+            8: {"Type": "CPU", "Generation": "1", "DC": 2}, 9: {"Type": "CPU", "Generation": "2", "DC": 2}, 10: {"Type": "CPU", "Generation": "3", "DC": 2}, 11: {"Type": "CPU", "Generation": "4", "DC": 2}, 12: {"Type": "GPU", "Generation": "1", "DC": 2}, 13: {"Type": "GPU", "Generation": "2", "DC": 2}, 14: {"Type": "GPU", "Generation": "3", "DC": 2},
+            15: {"Type": "CPU", "Generation": "1", "DC": 3}, 16: {"Type": "CPU", "Generation": "2", "DC": 3}, 17: {"Type": "CPU", "Generation": "3", "DC": 3}, 18: {"Type": "CPU", "Generation": "4", "DC": 3}, 19: {"Type": "GPU", "Generation": "1", "DC": 3}, 20: {"Type": "GPU", "Generation": "2", "DC": 3}, 21: {"Type": "GPU", "Generation": "3", "DC": 3},
+            22: {"Type": "CPU", "Generation": "1", "DC": 4}, 23: {"Type": "CPU", "Generation": "2", "DC": 4}, 24: {"Type": "CPU", "Generation": "3", "DC": 4}, 25: {"Type": "CPU", "Generation": "4", "DC": 4}, 26: {"Type": "GPU", "Generation": "1", "DC": 4}, 27: {"Type": "GPU", "Generation": "2", "DC": 4}, 28: {"Type": "GPU", "Generation": "3", "DC": 4}
+        }
 
-                    # Check if the server is available for purchase based on release time
-                    release_start, release_end = release_times[server_type]
-                    if release_start > self.current_time_step or release_end < self.current_time_step:
-                        print(f"Server type {server_type} is not available for purchase at time step {self.current_time_step}.")
-                        reward -= 1
-                        continue  # Skip the purchase if the server is not available
+        action_map = {
+            0: "BUY",
+            1: "DISMISS",
+            2: "MOVE",
+            3: "HOLD"
+        }
 
-                    dc_id = idx // self.num_server_types
-                    dc_identifier = "DC" + str(dc_id + 1)
-                    success = self.inventory.add_server(server_type_idx, qty, dc_identifier, moving=False)
-                    if success:
-                        reward += self.calculate_profit()  # Reward based on profit after action
-                    else:
-                        reward -= 1
+        release_times_start = {
+            'CPU.S1': 1,
+            'CPU.S2': 37,
+            'CPU.S3': 73,
+            'CPU.S4': 109,
+            'GPU.S1': 1,
+            'GPU.S2': 49,
+            'GPU.S3': 97
+        }
 
-        elif action_type == 1:  # Move action
-            for idx, qty in enumerate(move_quantities):
-                print("Move quantities ARE ZEROOOOOO:", move_quantities)
-                if qty > 0:
-                    print("Move quantities ARE NOT ZERO:", move_quantities)
-                    source_dc_id = "DC" + str(move_source_dcs[idx] + 1)
-                    target_dc_id = "DC" + str(move_target_dcs[idx] + 1)
-                    server_type = idx % self.num_server_types
-                    print(f"Processing move: {qty} servers of type {server_type} from {source_dc_id} to {target_dc_id}.")
-                    success = self.inventory.move_server(server_type, qty, source_dc_id, target_dc_id)
-                    if success:
-                        reward += self.calculate_reward()
-                    else:
-                        reward -= 1
+        release_times_end = {
+            'CPU.S1': 60,
+            'CPU.S2': 96,
+            'CPU.S3': 132,
+            'CPU.S4': 168,
+            'GPU.S1': 72,
+            'GPU.S2': 120,
+            'GPU.S3': 168
+        }
 
-        elif action_type == 2:  # Dismiss
-            for idx, qty in enumerate(dismiss_actions):
-                if qty > 0:
-                    server_type = idx % self.num_server_types
-                    dc_id = idx // self.num_server_types
-                    dc_identifier = "DC" + str(dc_id + 1)
-                    success = self.inventory.remove_server(server_type, qty, dc_identifier)
-                    if success:
-                        reward += self.calculate_reward()
-                    else:
-                        reward -= 1
+        # Start processing the action
+        action_type = action_map[action[0]]
+        reward = 0
 
-        elif action_type == 3:  # Hold
-            reward = self.calculate_reward()
+        # Parse the action array based on the structure defined in the action space
+        buy_action_code = action[1]
+        buy_action_code += 1
+        buy_quantity = action[2]
+        dismiss_action_code = action[3]
+        dismiss_action_code += 1
+        dismiss_quantity = action[4]
+        move_source_code = action[5]
+        move_source_code += 1
+        move_target_code = action[6]
+        move_target_code += 1
+        move_quantity = action[7]
 
+        # Get details from the server_dataceneter_map
+        buy_action_details = server_datacenter_map[buy_action_code]
+        dismiss_action_details = server_datacenter_map[dismiss_action_code]
+        move_source_details = server_datacenter_map[move_source_code]
+        move_target_details = move_target_code + 1
+
+        # # Print action keys and values
+        # print("|-----------------|")
+        # print("Action Keys and Values:")
+        # print(f"Action Type: {action_type}")
+        # print(f"Buy Action Code: {buy_action_code} == (Server Type: {buy_action_details['Type']}, Generation: {buy_action_details['Generation']}, DC: {buy_action_details['DC']})")
+        # print(f"Buy Quantity: {buy_quantity}")
+        # print(f"Dismiss Action Code: {dismiss_action_code} == (Server Type: {dismiss_action_details['Type']}, Generation: {dismiss_action_details['Generation']}, DC: {dismiss_action_details['DC']})")
+        # print(f"Dismiss Quantity: {dismiss_quantity}")
+        # print(f"Move Source Code: {move_source_code} == (Server Type: {move_source_details['Type']}, Generation: {move_source_details['Generation']}, DC: {move_source_details['DC']})")
+        # print(f"Move Target Code: {move_target_code} == (Data Center: {move_target_details})")
+        # print(f"Move Quantity: {move_quantity}")
+        # print("|-----------------|")
+
+        # Logic for each action type
+ #       if action_type == "BUY":
+        server_type = f"{buy_action_details['Type']}.S{buy_action_details['Generation']}"
+        dc_identifier = f"DC{buy_action_details['DC']}"
+
+        # Check release time constraints
+        release_start = release_times_start[server_type]
+        release_end = release_times_end[server_type]
+        if release_start <= self.current_time_step <= release_end:
+            self.baught_servers_time_step = self.inventory.add_server(server_type, buy_quantity, dc_identifier)
+            #print("Asked for servers:")
+            for idx, row in self.current_demand_rows.iterrows():
+                server_generation = row['server_generation']
+                #print(f"Time Step: {self.current_time_step}, Server Generation: {server_generation}, High: {row['high']}, Low: {row['low']}, Medium: {row['medium']}")
+            if len(self.baught_servers_time_step) > 0:
+                #print("Baught servers:")
+                #print(self.baught_servers_time_step)
+
+                capacity_met_ratio = self.calculate_capacity_met_ratio()
+                self.calculate_total_capacity_demanded(self.current_time_step)
+                self.calculate_total_capacity_met_due_to_baught(self.current_time_step)
+                self.calculate_total_capacity_met_actual(self.current_time_step)
+
+                print(f"<<<Capacity Met Ratio at Time Step>>> {self.current_time_step}: {capacity_met_ratio}%")
+                print(f"Total Capacity Demanded: {self.total_capacity_demanded}")
+                print(f"Total Capacity Met due to Baught: {self.total_capacity_met_due_to_baught}")
+                print(f"Total Capacity Met Actual: {self.total_capacity_met_actual}")
+                print("Giving reward: ", self.total_capacity_met_actual /self.total_capacity_demanded)
+                reward += self.total_capacity_met_actual /self.total_capacity_demanded  # Assuming this method calculates the profit
+            else:
+                print("Failed to buy servers.")
+                reward -= 500
+        else:
+            print(f"Server type {server_type} is not available for purchase at time step {self.current_time_step}.")
+            reward -= 500
+
+    # elif action_type == "DISMISS":
+    #     reward -= 99999
+        #     server_type = f"{dismiss_action_details['Type']}.S{dismiss_action_details['Generation']}"
+        #     dc_identifier = f"DC{dismiss_action_details['DC']}"
+
+        #     success = self.inventory.remove_server(server_type, dismiss_quantity, dc_identifier)
+        #     if success:
+        #         reward -= self.calculate_reward()  # Assuming this method calculates the reward for successful action
+        #     else:
+        #         reward -= 9999
+
+        # elif action_type == "MOVE":
+        #     reward -= 99999
+        #     source_server_type = f"{move_source_details['Type']}.S{move_source_details['Generation']}"
+        #     source_dc_identifier = f"DC{move_source_details['DC']}"
+        #     target_dc_identifier = f"DC{move_target_details}"
+
+        #     success = self.inventory.move_server(source_server_type, move_quantity, source_dc_identifier, target_dc_identifier)
+        #     if success:
+        #         reward -= self.calculate_reward()  # Assuming this method calculates the reward for successful action
+        #     else:
+        #         reward -= 9999
+
+        # elif action_type == "HOLD":
+        #     reward -= 99999
+        #     # No operation, but potentially calculate passive rewards or penalties
+        #     reward -= self.calculate_reward()  # Assuming there's a reward calculation for holding
+
+        # Update the state and calculate reward as needed
         self.state = self.update_state()
         observation = self.convert_state_to_observation(self.state)
-        done = self.check_done()
 
         self.current_time_step += 1
-        if self.current_time_step <= len(self.demand_data.demand_data_df['time_step'].unique()):
-            self.current_demand_rows = self.demand_data.demand_data_df[self.demand_data.demand_data_df['time_step'] == self.current_time_step]
-        else:
-            done = True
+        done = self.check_done()
+        truncated = False
 
-        return observation, reward, done, {}
+        # if self.current_time_step <= len(self.demand_data.demand_data_df['time_step'].unique()):
+        #     self.current_demand_rows = self.demand_data.demand_data_df[self.demand_data.demand_data_df['time_step'] == self.current_time_step]
+        #     done = self.check_done()
+        # else:
+        #     done = self.check_done()
+        info = {}
+        if done:
+            print("Done")
+            truncated = (self.current_time_step > self.max_time_steps)
+        
+        return observation, reward, done, truncated, info
+        #print(f"Action taken: {action}, Reward: {reward}, New State: {self.state}")
+        return observation, reward, done, truncated, info
+        #return observation, reward, done, {}
+    
+    # def calculate_total_capacity_demanded(self, time_step):
+    #     for idx, row in self.current_demand_rows.iterrows():
+    #         self.total_capacity_demanded += row['high'] + row['low'] + row['medium']
+    #         print(f"Time Step: {self.current_time_step}, Server Generation: {row['server_generation']}, High: {row['high']}, Low: {row['low']}, Medium: {row['medium']}")
+    #     print(f"Total Capacity Demanded: {self.total_capacity_demanded}")
+
+    def calculate_total_capacity_demanded(self, time_step):
+        self.total_capacity_demanded = 0  # Reset the total capacity demanded
+
+        for idx, row in self.current_demand_rows.iterrows():
+            # Add up the demand for high, low, and medium latency sensitivity
+            self.total_capacity_demanded += row['high'] + row['low'] + row['medium']
+            # print(f"Time Step: {self.current_time_step}, Server Generation: {row['server_generation']}, "
+            #     f"High: {row['high']}, Low: {row['low']}, Medium: {row['medium']}")
+
+        # print(f"Total Capacity Demanded at Time Step {self.current_time_step}: {self.total_capacity_demanded}")
+
+    
+    def calculate_total_capacity_met_due_to_baught(self, time_step):
+        self.total_capacity_met_due_to_baught = 0  # Reset the total capacity met
+
+        for idx, row in self.current_demand_rows.iterrows():
+            server_generation = row['server_generation']
+            demand_for_high = row['high']
+            demand_for_medium = row['medium']
+            demand_for_low = row['low']
+
+            # # Print debug statements
+            # print(f"Outer loop: Server Generation: {server_generation}, High: {demand_for_high}, "
+            #     f"Low: {demand_for_low}, Medium: {demand_for_medium}")
+            # print(f"Current demand rows columns: {self.current_demand_rows.columns}")
+
+            for server in self.baught_servers_time_step:
+                # Unpack the details for each server bought in this time step
+                server_id, server_gen, data_center, latency_sensitivity = server
+
+                # Print debug statements
+                # print(f"Inner loop: Server ID: {server_id}, Server Generation: {server_gen}, "
+                #     f"Latency Sensitivity: {latency_sensitivity}")
+
+                # Match server generation and latency sensitivity
+                if server_gen == server_generation:
+                    if latency_sensitivity == 'high' and demand_for_high > 0:
+                        self.total_capacity_met_due_to_baught += 1  # Or server capacity if relevant
+                        demand_for_high -= 1
+                    elif latency_sensitivity == 'medium' and demand_for_medium > 0:
+                        self.total_capacity_met_due_to_baught += 1  # Or server capacity if relevant
+                        demand_for_medium -= 1
+                    elif latency_sensitivity == 'low' and demand_for_low > 0:
+                        self.total_capacity_met_due_to_baught += 1  # Or server capacity if relevant
+                        demand_for_low -= 1
+
+                    # Stop processing if all demand for this server generation and sensitivity is met
+                    if demand_for_high == 0 and demand_for_medium == 0 and demand_for_low == 0:
+                        break
+
+            # print(f"Time Step: {self.current_time_step}, Server Generation: {server_generation}, "
+            #     f"High: {demand_for_high}, Low: {demand_for_low}, Medium: {demand_for_medium}")
+        # print(f"Total Capacity Met at Time Step {self.current_time_step}: {self.total_capacity_met_due_to_baught}")
+        # print(f"Total Capacity Demanded at Time Step {self.current_time_step}: {self.total_capacity_demanded}")
+
+    def calculate_total_capacity_met_actual(self, time_step):
+        self.total_capacity_met_actual = 0  # Reset the total capacity met
+
+        # Iterate over each demand row for the current time step
+        for idx, row in self.current_demand_rows.iterrows():
+            server_generation = row['server_generation']
+            demand_for_high = row['high']
+            demand_for_medium = row['medium']
+            demand_for_low = row['low']
+
+            # Debug statements
+            # print(f"Outer loop: Server Generation: {server_generation}, High: {demand_for_high}, "
+            #     f"Low: {demand_for_low}, Medium: {demand_for_medium}")
+            # print(f"Current demand rows columns: {self.current_demand_rows.columns}")
+
+            # Iterate through each data center in the inventory
+            for dc in self.inventory.datacenters:
+                # Iterate through each server in the data center
+                for server in dc.servers:
+                    # Ensure the server is deployed and available
+                    if not server.deployed:
+                        continue  # Skip servers that are not deployed
+
+                    # Unpack server details
+                    server_id = server.identifier
+                    server_gen = server.generation  # Ensure this attribute exists
+                    latency_sensitivity = server.data_center_object.latency_sensitivity  # Ensure this attribute exists
+
+                    # Debug statements
+                    # print(f"Inner loop: Server ID: {server_id}, Server Generation: {server_gen}, "
+                    #     f"Latency Sensitivity: {latency_sensitivity}")
+
+                    # Match server generation
+                    if server_gen != server_generation:
+                        continue  # Skip if server generation does not match
+
+                    # Allocate server capacity based on latency sensitivity
+                    if latency_sensitivity == 'high' and demand_for_high > 0:
+                        self.total_capacity_met_actual += 1  # Adjust if servers have different capacities
+                        demand_for_high -= 1
+                        #print(f"Allocated to high latency demand. Remaining high demand: {demand_for_high}")
+                    elif latency_sensitivity == 'medium' and demand_for_medium > 0:
+                        self.total_capacity_met_actual += 1
+                        demand_for_medium -= 1
+                        #print(f"Allocated to medium latency demand. Remaining medium demand: {demand_for_medium}")
+                    elif latency_sensitivity == 'low' and demand_for_low > 0:
+                        self.total_capacity_met_actual += 1
+                        demand_for_low -= 1
+                        #print(f"Allocated to low latency demand. Remaining low demand: {demand_for_low}")
+
+                    # Check if all demands for this server generation are met
+                    if demand_for_high == 0 and demand_for_medium == 0 and demand_for_low == 0:
+                        #print("All demands for this server generation are met.")
+                        break  # Exit the server loop early
+
+                # After iterating through all servers in the data center
+                if demand_for_high == 0 and demand_for_medium == 0 and demand_for_low == 0:
+                    #print("All demands for this server generation are met across all data centers.")
+                    break  # Exit the data center loop early
+
+            # Debug statement after processing all data centers for this demand row
+            # print(f"Time Step: {self.current_time_step}, Server Generation: {server_generation}, "
+            #     f"High: {demand_for_high}, Low: {demand_for_low}, Medium: {demand_for_medium}")
+
+        # Final debug statements
+        # print(f"Total Capacity Met Actual at Time Step {self.current_time_step}: {self.total_capacity_met_actual}")
+        # print(f"Total Capacity Demanded at Time Step {self.current_time_step}: {self.total_capacity_demanded}")
+
+    def calculate_capacity_met_ratio(self):
+        if self.total_capacity_demanded > 0:
+            return (self.total_capacity_met_actual / self.total_capacity_demanded) * 100
+        else:
+            return 0  # No demand means no capacity could be met, returning 0%
 
     def update_state(self):
-        print(f"Updating state after move. : {self.current_time_step}")
-        for datacenter in self.inventory.datacenters:
-            datacenter.update()
+        #print(f"Updating state after the action : {self.current_time_step}")
+        self.inventory.update()
         new_state = self.initialize_environment_state()
-        print("New state:", new_state)
+        #print("New state:", new_state)
         return new_state
-
-
-    def calculate_profit(self):
-        # Calculate the current total costs
-        current_total_costs = self.inventory.get_total_costs()
-        
-        # Calculate the revenue generated in this step
-        current_total_revenue = sum(s.selling_price for dc in self.inventory.datacenters for s in dc.servers if s.deployed and s.operational_time == 1)
-        
-        # Step-specific profit calculation
-        step_profit = current_total_revenue - current_total_costs
-        print(f"Step Revenue: {current_total_revenue}, Step Costs: {current_total_costs}, Step Profit: {step_profit}")
-        return step_profit
 
     def calculate_utilization(self):
         total_utilization = 0
@@ -703,16 +475,6 @@ class ServerManagementEnv(gym.Env):
             total_utilization += dc.calculate_utilization()
         return total_utilization / self.num_data_centers if self.num_data_centers > 0 else 0
 
-    def calculate_reward(self):
-        step_profit = self.calculate_profit()
-        utilization_contribution = self.calculate_utilization() * 0.5  # Weight utilization equally
-        
-        reward = step_profit * 0.5 + utilization_contribution
-        print(f"Reward: {reward}")
-        return reward
-
-
-
     def check_done(self):
-        return self.current_time_step > 100
+        return self.current_time_step >= self.max_time_steps
 
