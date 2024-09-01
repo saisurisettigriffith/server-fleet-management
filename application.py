@@ -297,79 +297,7 @@ class Simulation:
             return total_demand_met / total_capacity
         else:
             return 0
-
-    def buy_servers(self, generation, latency_sensitivity, additional_capacity_needed):
-        print(f"Trying to meet additional demand of {additional_capacity_needed} with new servers.")
-        # Using a simplified approach to get the first server of the requested generation
-        server_data = self.givens.servers_df[self.givens.servers_df['server_generation'] == generation].iloc[0]
-        slots_needed = server_data['slots_size']
-        purchase_limit = 10  # This could be adjusted based on strategic needs
-
-        for datacenter in self.inventory.datacenters:
-            purchase_count = 0
-            while additional_capacity_needed > 0 and datacenter.empty_slots >= slots_needed and purchase_count < purchase_limit:
-                new_server = Server(self.givens, generation, datacenter.identifier, datacenter)
-                if datacenter.can_add_server(new_server):
-                    datacenter.add_server(new_server)
-                    additional_capacity_needed -= new_server.capacity
-                    additional_capacity_needed = max(0, additional_capacity_needed)
-                    purchase_count += 1
-                    print(f"Added one {generation} server to {datacenter.identifier}; remaining demand: {additional_capacity_needed}.")
-                if additional_capacity_needed <= 0:
-                    break
-
-            if additional_capacity_needed <= 0 or purchase_count == purchase_limit:
-                break
-
-        if additional_capacity_needed > 0:
-            print(f"Warning: Not enough capacity to meet the demand for {generation} servers with {latency_sensitivity} sensitivity after {purchase_limit} purchases. Missing capacity: {additional_capacity_needed}")
-
-    def move_servers(self, from_dc, to_dc, generation, latency_sensitivity, additional_capacity_needed):
-        """
-        Moves servers from one data center to another to handle increased demand.
         
-        Args:
-            from_dc (DataCenter): The data center from which servers are moved.
-            to_dc (DataCenter): The data center to which servers are moved.
-            generation (str): The generation of servers to be moved.
-            latency_sensitivity (str): The latency sensitivity category of the servers.
-            additional_capacity_needed (int): The additional capacity needed at the destination data center.
-        """
-        # Identify servers that can be moved
-        movable_servers = [
-            server for server in from_dc.servers
-            if server.generation == generation and server.latency_sensitivity == latency_sensitivity and server.deployed
-        ]
-        
-        moved_capacity = 0
-        servers_moved = []
-
-        # Move servers until the needed capacity is met or no more movable servers
-        for server in movable_servers:
-            if moved_capacity >= additional_capacity_needed:
-                break
-            
-            # Move server from from_dc to to_dc
-            from_dc.remove_server(server)
-            to_dc.add_server(server)
-            servers_moved.append(server)
-            moved_capacity += server.capacity
-
-            print(f"Moved server {server.identifier} from {from_dc.identifier} to {to_dc.identifier}. Added capacity: {server.capacity}")
-            
-        # Check if the movement met the demand
-        if moved_capacity < additional_capacity_needed:
-            print(f"Warning: Not enough servers moved to meet the demand. Moved {moved_capacity}, needed {additional_capacity_needed}.")
-            # Optionally, move servers back if operation needs to be atomic and fully satisfying
-            for server in servers_moved:
-                to_dc.remove_server(server)
-                from_dc.add_server(server)
-            print("Reverted server movements due to insufficient capacity.")
-        else:
-            print(f"Successfully moved {moved_capacity} capacity to {to_dc.identifier}.")
-
-        return moved_capacity
-
     def age_servers(self):
         for datacenter in self.inventory.datacenters:
             datacenter.age_servers()

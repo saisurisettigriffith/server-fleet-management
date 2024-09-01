@@ -388,7 +388,7 @@ class InputDemandDataActual:
         # print("IMPORTANT: The InputDemandDataActual AND YOUR ORIGINAL COPIES should not be changed BECAUSE THE AGENT NEEDS TO BE TRAINED ON THE ORIGINAL INPUT FORMAT HOW THEY APPEAR.")
         # print("Columns and Head of Hackathon Input Format demand data: ")
         # print(self.demand_data_df.columns)
-        # print(self.demand_data_df.head())
+        print(self.demand_data_df.head())
         # print("IMPORTANT: The InputDemandDataActual AND YOUR ORIGINAL COPIES should not be changed BECAUSE THE AGENT NEEDS TO BE TRAINED ON THE ORIGINAL INPUT FORMAT HOW THEY APPEAR.")
         '''
         Logic on the other parts of the project need to be adjusted to understand the format of the Hackathon Input Format demand data.
