@@ -19,7 +19,6 @@ class ServerManagementEnv(gym.Env):
         self.total_capacity_met_due_to_baught = 0
         self.total_capacity_met_actual = 0
         self.max_time_steps = 100
-        self.penality = 1
         # Hardcoded release times based on the provided CSV
 
         # Define your action and observation spaces based on these attributes
@@ -255,8 +254,7 @@ class ServerManagementEnv(gym.Env):
                 print("<<<<<<<<<<<<Giving reward>>>>>>>>>>>>: ", reward)
         else:
             #print(f"Server type {server_type} is not available for purchase at time step {self.current_time_step}.")
-            reward -= self.penality
-            self.penality += 1
+            reward -= 1
             print("<<<<<<<<<<<<Giving reward>>>>>>>>>>>>: ", reward)
 
 
