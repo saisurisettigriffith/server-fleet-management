@@ -19,7 +19,7 @@ def train_model(seed = 144):
 
     obs = env.reset()
     step_count = 0
-    for _ in range(30):  # Define the number of steps or use a more complex termination condition
+    for _ in range(2):  # Define the number of steps or use a more complex termination condition
         action = model.predict(obs, deterministic=False)[0]
         print(f"Action: {action}")
         obs, reward, dones, info = env.step(action)
@@ -34,6 +34,6 @@ def train_model(seed = 144):
 if __name__ == "__main__":
     print("Training the model...")
     i = 0
-    while (i < 10):
+    while (i < 600):
         train_model(18)
         i += 1

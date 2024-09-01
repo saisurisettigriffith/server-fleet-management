@@ -19,22 +19,22 @@ class ServerManagementEnv(gym.Env):
         self.total_capacity_met_due_to_baught = 0
         self.total_capacity_met_actual = 0
         self.max_time_steps = 100
-        self.penality = 0
+        self.penality = 1
         # Hardcoded release times based on the provided CSV
 
         # Define your action and observation spaces based on these attributes
-        max_quantity = 100
+        max_quantity = 2
         self.action_space = spaces.MultiDiscrete([
             1,
-            self.num_server_types * self.num_data_centers,  # "magic code" for each server type at each DC - BUY
-            max_quantity, # How Many to buy
-            self.num_server_types * self.num_data_centers,  # "magic code" for each server type at each DC - DISMISS
-            max_quantity, # How Many to dismiss
-            self.num_data_centers * self.num_server_types,  # "magic code" for each server type at each DC - MOVE.Source
-            4,  # "magic code" for each server type at each DC - MOVE.Target
-            max_quantity, # How Many to move
+            28,  # "magic code" for each server type at each DC - BUY
+            max_quantity # How Many to buy
+            # self.num_server_types * self.num_data_centers,  # "magic code" for each server type at each DC - DISMISS
+            # max_quantity, # How Many to dismiss
+            # self.num_data_centers * self.num_server_types,  # "magic code" for each server type at each DC - MOVE.Source
+            # 4,  # "magic code" for each server type at each DC - MOVE.Target
+            # max_quantity, # How Many to move
         ])
-        self.observation_shape = 55  # Set this to the expected max size
+        self.observation_shape = 500  # Set this to the expected max size
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_shape,), dtype=np.float64)
         self.state = self.reset()
 
@@ -111,12 +111,15 @@ class ServerManagementEnv(gym.Env):
 
         for i, dc in enumerate(self.inventory.datacenters):
             dc_id = dc.identifier
-            state[f"{dc_id}_TOTAL_SERVERS"] = len(dc.servers)
-            state[f"{dc_id}_OPERATIONAL_SERVERS"] = sum(1 for s in dc.servers if s.deployed)
-            state[f"{dc_id}_ENERGY_CONSUMPTION"] = dc.get_total_energy_cost()
-            state[f"{dc_id}_AVAILABLE_SLOTS"] = dc.empty_slots
-            state[f"{dc_id}_UTILIZATION"] = dc.calculate_utilization()
-            total_utilization += dc.calculate_utilization()
+            # state[f"{dc_id}_TOTAL_SERVERS"] = len(dc.servers)
+            # state[f"{dc_id}_OPERATIONAL_SERVERS"] = sum(1 for s in dc.servers if s.deployed)
+            # state[f"{dc_id}_ENERGY_CONSUMPTION"] = dc.get_total_energy_cost()
+            state["DC1_AVAILABLE_SLOTS"] = dc.empty_slots if dc_id == "DC1" else 0
+            state["DC2_AVAILABLE_SLOTS"] = dc.empty_slots if dc_id == "DC2" else 0
+            state["DC3_AVAILABLE_SLOTS"] = dc.empty_slots if dc_id == "DC3" else 0
+            state["DC4_AVAILABLE_SLOTS"] = dc.empty_slots if dc_id == "DC4" else 0
+            # state[f"{dc_id}_UTILIZATION"] = dc.calculate_utilization()
+            # total_utilization += dc.calculate_utilization()
 
         # Add demand data to the state with numerical encoding for server generation
         for idx, row in self.current_demand_rows.iterrows():
@@ -208,20 +211,20 @@ class ServerManagementEnv(gym.Env):
         buy_action_code = action[1]
         buy_action_code += 1
         buy_quantity = action[2]
-        dismiss_action_code = action[3]
-        dismiss_action_code += 1
-        dismiss_quantity = action[4]
-        move_source_code = action[5]
-        move_source_code += 1
-        move_target_code = action[6]
-        move_target_code += 1
-        move_quantity = action[7]
+        # dismiss_action_code = action[3]
+        # dismiss_action_code += 1
+        # dismiss_quantity = action[4]
+        # move_source_code = action[5]
+        # move_source_code += 1
+        # move_target_code = action[6]
+        # move_target_code += 1
+        # move_quantity = action[7]
 
         # Get details from the server_dataceneter_map
         buy_action_details = server_datacenter_map[buy_action_code]
-        dismiss_action_details = server_datacenter_map[dismiss_action_code]
-        move_source_details = server_datacenter_map[move_source_code]
-        move_target_details = move_target_code + 1
+        # dismiss_action_details = server_datacenter_map[dismiss_action_code]
+        # move_source_details = server_datacenter_map[move_source_code]
+        # move_target_details = move_target_code + 1
 
         server_type = f"{buy_action_details['Type']}.S{buy_action_details['Generation']}"
         dc_identifier = f"DC{buy_action_details['DC']}"
@@ -248,7 +251,7 @@ class ServerManagementEnv(gym.Env):
                 # print(f"Total Capacity Demanded: {self.total_capacity_demanded}")
                 # print(f"Total Capacity Met due to Baught: {self.total_capacity_met_due_to_baught}")
                 # print(f"Total Capacity Met Actual: {self.total_capacity_met_actual}")
-                reward += (self.total_capacity_met_actual / self.total_capacity_demanded)
+                reward += ((self.total_capacity_met_actual / self.total_capacity_demanded) * 1000)
                 print("<<<<<<<<<<<<Giving reward>>>>>>>>>>>>: ", reward)
         else:
             #print(f"Server type {server_type} is not available for purchase at time step {self.current_time_step}.")
@@ -268,6 +271,9 @@ class ServerManagementEnv(gym.Env):
 
         if self.current_time_step <= len(self.demand_data.demand_data_df['time_step'].unique()):
             self.current_demand_rows = self.demand_data.demand_data_df[self.demand_data.demand_data_df['time_step'] == self.current_time_step]
+        else:
+            done = True
+            self.reset()
 
         info = {}
         if done:
