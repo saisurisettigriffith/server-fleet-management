@@ -300,6 +300,7 @@ class Simulation:
 
     def buy_servers(self, generation, latency_sensitivity, additional_capacity_needed):
         print(f"Trying to meet additional demand of {additional_capacity_needed} with new servers.")
+        # Using a simplified approach to get the first server of the requested generation
         server_data = self.givens.servers_df[self.givens.servers_df['server_generation'] == generation].iloc[0]
         slots_needed = server_data['slots_size']
         purchase_limit = 10  # This could be adjusted based on strategic needs
@@ -307,8 +308,7 @@ class Simulation:
         for datacenter in self.inventory.datacenters:
             purchase_count = 0
             while additional_capacity_needed > 0 and datacenter.empty_slots >= slots_needed and purchase_count < purchase_limit:
-                randint = np.random.randint(1000)
-                new_server = Server(self.givens, generation, latency_sensitivity, datacenter, identifier=f"{datacenter.identifier}_{randint}")
+                new_server = Server(self.givens, generation, datacenter.identifier, datacenter)
                 if datacenter.can_add_server(new_server):
                     datacenter.add_server(new_server)
                     additional_capacity_needed -= new_server.capacity

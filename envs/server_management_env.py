@@ -26,67 +26,50 @@ class ServerManagementEnv(gym.Env):
         self.current_time_step = 1
         self.current_demand_rows = self.demand_data.demand_data_df[self.demand_data.demand_data_df['time_step'] == self.current_time_step]
         self.state = self.initialize_environment_state()
+        observation, info = self.convert_state_to_observation(self.state), {}
+        #print(f"Reset observation (first 4 values): {observation[:4]}")
         return self.convert_state_to_observation(self.state), {}
 
     def step(self, action):
+        print(f"Action received: {action}")
+        # Ensure that the action is a valid index
         server_id, quantity = action
-
-        # Ensure the server ID is within the range of available servers.
         if server_id >= len(self.givens.servers_df):
+            print("Server ID out of range.. action:", action, " is greater than Length of servers_df:", len(self.givens.servers_df), "Reward: -100")
             reward = -100
             done = True
-            return self.state, reward, done, {"error": "Server ID out of range"}
+            truncated = False  # Adding the truncated return value here
+            return np.full(self.observation_shape, -1.0, dtype=np.float32), reward, done, truncated, {"error": "Server ID out of range"}
 
         server_info = self.givens.servers_df.iloc[server_id]
-        print(server_info.columns)
-        server_type = server_info['type']
-        print(server_type.columns)
-        dc_id = server_info['dc_id']
+        server_type = server_info['server_type']
+        dc_id = np.random.choice(self.num_data_centers)
 
-        # Check if the action is feasible with the current inventory and time constraints
-        if self.current_time_step < server_info['release_start'] or self.current_time_step > server_info['release_end']:
+        release_times = server_info['release_time'].strip("[]").split(',')
+        release_start, release_end = int(release_times[0]), int(release_times[1])
+
+        # Check time constraints
+        if not (release_start <= self.current_time_step <= release_end):
+            print("Bad Timing.. action: ", action, "Current: ", self.current_time_step, "Release_start: ", release_start, "Release_end", release_end, "Reward: -50")
             reward = -50
             done = False
-            return self.state, reward, done, {"error": "Server not available for purchase due to release time constraints"}
+            truncated = False  # No early truncation of the episode
+            return self.convert_state_to_observation(self.state), reward, done, truncated, {"error": "Server not available due to timing"}
 
-        # Process buying servers
+        # Execute the purchase
         success = self.inventory.add_server(server_type, quantity, dc_id)
         reward = 100 if success else -10
-
+        print("Success:", success, "Reward:", reward)
         self.current_time_step += 1
         done = self.current_time_step >= self.max_time_steps
+        truncated = False  # No early truncation of the episode
 
+        # Update the environment state
         self.state = self.update_state()
         observation = self.convert_state_to_observation(self.state)
-        return observation, reward, False, done, {}
 
+        return observation, reward, done, truncated, {}  # Include truncated status and empty info dict if no additional info
 
-    # def step(self, action):
-    #     server_id, quantity = action
-    #     server_info = self.givens.servers_df.iloc[server_id]
-    #     print(server_info)
-    #     server_type = server_info['type']
-    #     dc_id = server_info['dc_id']
-
-    #     reward = 0
-    #     done = False
-
-    #     # Check if server can be bought at this timestep
-    #     if self.current_time_step in range(server_info['available_from'], server_info['available_until'] + 1):
-    #         # Proceed with buying servers
-    #         success = self.inventory.buy_server(server_type, dc_id, quantity)
-    #         reward = 100 if success else -10  # Example reward logic
-    #     else:
-    #         reward = -50  # Penalty for attempting to buy out of allowed time
-
-    #     self.current_time_step += 1
-    #     if self.current_time_step > self.max_time_steps:
-    #         done = True
-
-    #     self.current_demand_rows = self.demand_data.demand_data_df[self.demand_data.demand_data_df['time_step'] == self.current_time_step]
-    #     self.state = self.update_state()
-
-    #     return self.convert_state_to_observation(self.state), reward, done, {}
 
     def initialize_environment_state(self):
         # Initialize or reset your environment's state
@@ -103,10 +86,12 @@ class ServerManagementEnv(gym.Env):
         return state
 
     def convert_state_to_observation(self, state):
-        # Convert the state dictionary into a structured numpy array
-        observation = np.zeros(self.observation_shape)
-        for i, key in enumerate(sorted(state.keys())):
-            observation[i] = state[key]
-        return observation
+        # Create an array of the proper shape with default values
+        observation = np.full(self.observation_shape, -1.0, dtype=np.float32)
 
-# Additional classes and methods such as Inventory, DataCenter should handle specifics of managing servers and data centers
+        # Populate the start of the array with state values
+        state_values = np.array(list(state.values()), dtype=np.float32)
+        observation[:len(state_values)] = state_values
+        #observation shape:", observation.shape)  # Ensure it matches expected shape
+        #print("Data type of observation:", observation.dtype)  # Should be float32
+        return observation

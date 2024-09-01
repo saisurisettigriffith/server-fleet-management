@@ -11,11 +11,9 @@ for seed in seeds:
     if (x == 0):
         break
     givens = ProblemData()
-    sample_demand = InputDemandDataSample()
-    actual_demand = InputDemandDataActual(sample_data=sample_demand, seed=42)
+    actual_demand = InputDemandDataActual(seed=42)
     inventory = Inventory(givens)
     print(givens)
-    print(sample_demand)
     print(actual_demand)
     print(inventory)
     solution_json = app.solution_function(givens, actual_demand, time_steps=5, debugging=True)
