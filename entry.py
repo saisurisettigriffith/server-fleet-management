@@ -13,6 +13,7 @@ for s in seeds:
     givens = ProblemData()
     actual_demand = InputDemandDataActual(seed = s)
     inventory = Inventory(givens)
+    time_steps_send = 168
     print(givens)
     print(actual_demand)
     print(inventory)

@@ -398,3 +398,7 @@ class InputDemandDataActual:
 
     def adjust_demand_with_hackathon_method(self, demand_df):
         return get_actual_demand(demand_df)
+    
+    def get_demand_for_time_step(self, time_step):
+        filtered_df = self.demand_data_df[self.demand_data_df['time_step'] == time_step]
+        return filtered_df
