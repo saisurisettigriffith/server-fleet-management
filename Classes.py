@@ -152,6 +152,10 @@ class Inventory:
     def __init__(self, givens):
         self._givens = givens
         self.datacenters = [DataCenter(givens, dc_id) for dc_id in givens.datacenters_df['datacenter_id']]
+        self.DC1 = self.datacenters[0]
+        self.DC2 = self.datacenters[1]
+        self.DC3 = self.datacenters[2]
+        self.DC4 = self.datacenters[3]
         self.current_time_step = 0
         self.expenses = ExpensesReturns()
         self.utilization_log = []
@@ -196,31 +200,31 @@ class Inventory:
             return df.groupby('server_generation')['capacity'].sum().to_frame('capacity')
         return pd.DataFrame(columns=['capacity'])
 
-    # def move_server(self, server_type, quantity, source_dc_id, target_dc_id):
-    #     source_dc = self.get_datacenter_by_id(source_dc_id)
-    #     target_dc = self.get_datacenter_by_id(target_dc_id)
-    #     print(f"Attempting to move {quantity} servers of type {server_type} from {source_dc_id} to {target_dc_id}.")
+    def move_server(self, server_type, quantity, source_dc_id, target_dc_id):
+        source_dc = self.get_datacenter_by_id(source_dc_id)
+        target_dc = self.get_datacenter_by_id(target_dc_id)
+        print(f"Attempting to move {quantity} servers of type {server_type} from {source_dc_id} to {target_dc_id}.")
         
-    #     if source_dc and target_dc:
-    #         servers_to_move = [s for s in source_dc.servers if s.generation == server_type and s.deployed][:quantity]
-    #         print(f"Found {len(servers_to_move)} servers to move.")
+        if source_dc and target_dc:
+            servers_to_move = [s for s in source_dc.servers if s.generation == server_type and s.deployed][:quantity]
+            print(f"Found {len(servers_to_move)} servers to move.")
 
-    #         if len(servers_to_move) == quantity and all(target_dc.empty_slots >= s.slots_needed for s in servers_to_move):
-    #             for server in servers_to_move:
-    #                 source_dc.servers.remove(server)
-    #                 target_dc.servers.append(server)
-    #                 server.data_center = target_dc
-    #                 print(f"Successfully moved server {server.identifier} to {target_dc_id}.")
-    #                 self.expenses.add_moving_cost(server.cost_of_moving)
-    #             return True
-    #         else:
-    #             print(f"Not enough servers or slots. Available slots: {target_dc.empty_slots}")
-    #             return False
-    #     else:
-    #         print(f"Invalid data center IDs: {source_dc_id}, {target_dc_id}")
-    #         return False
+            if len(servers_to_move) == quantity and all(target_dc.empty_slots >= s.slots_needed for s in servers_to_move):
+                for server in servers_to_move:
+                    source_dc.servers.remove(server)
+                    target_dc.servers.append(server)
+                    server.data_center = target_dc
+                    print(f"Successfully moved server {server.identifier} to {target_dc_id}.")
+                    self.expenses.add_moving_cost(server.cost_of_moving)
+                return True
+            else:
+                print(f"Not enough servers or slots. Available slots: {target_dc.empty_slots}")
+                return False
+        else:
+            print(f"Invalid data center IDs: {source_dc_id}, {target_dc_id}")
+            return False
 
-    def add_server(self, server_generation, quantity, datacenter_id):
+    def add_server(self, server_generation, quantity, datacenter_id, current_time_step, current_json):
         datacenter = self.get_datacenter_by_id(datacenter_id)
         if not datacenter:
             #print(f"Data center DC{datacenter_id} not found.")
@@ -252,36 +256,44 @@ class Inventory:
             datacenter.servers.append(new_server)
             datacenter.update_slots()
             new_server.deploy()
-            details.append(new_server.identifier)
-            details.append(new_server.generation)
-            details.append(new_server.data_center)
-            details.append(new_server.data_center_object.latency_sensitivity)
+            new_server_json = {
+                "time_step": current_time_step,
+                "datacenter_id": f"{new_server.data_center_object.identifier}",
+                "server_generation": server_generation,
+                "server_id": new_server.identifier,
+                "action": "buy"
+            }
+            current = []
+            current.append(new_server_json)
+            current_json.append(current)
+            # details.append(new_server.identifier)
+            # details.append(new_server.generation)
+            # details.append(new_server.data_center)
+            # details.append(new_server.data_center_object.latency_sensitivity)
             #print(f"Server {new_server.identifier} of type {server_type} deployed in data center DC{datacenter_id}.")
-            final.append(details)
+            # final.append(details)
 
         # Update Empty Slots
         #print(f"Empty slots before: {datacenter.empty_slots}")
         datacenter.update_empty_slots()
         #print(f"Empty slots after: {datacenter.empty_slots}")
 
-        return final
-
-    # def remove_server(self, server_type, quantity, datacenter_id):
-    #     datacenter = self.get_datacenter_by_id(datacenter_id)
-    #     if datacenter:
-    #         matching_servers = [server for server in datacenter.servers if server.generation == server_type]
-    #         if len(matching_servers) >= quantity:
-    #             servers_to_remove = random.sample(matching_servers, quantity)
-    #             for server in servers_to_remove:
-    #                 datacenter.servers.remove(server)
-    #                 server.decommission()
-    #             return True  # Indicating success
-    #         else:
-    #             print(f"Not enough servers of type {server_type} to remove {quantity} units from data center {datacenter_id}.")
-    #             return False  # Indicating failure
-    #     else:
-    #         print(f"Data center not found: {datacenter_id}")
-    #         return False  # Indicating failure
+    def remove_server(self, server_type, quantity, datacenter_id):
+        datacenter = self.get_datacenter_by_id(datacenter_id)
+        if datacenter:
+            matching_servers = [server for server in datacenter.servers if server.generation == server_type]
+            if len(matching_servers) >= quantity:
+                servers_to_remove = random.sample(matching_servers, quantity)
+                for server in servers_to_remove:
+                    datacenter.servers.remove(server)
+                    server.decommission()
+                return True  # Indicating success
+            else:
+                print(f"Not enough servers of type {server_type} to remove {quantity} units from data center {datacenter_id}.")
+                return False  # Indicating failure
+        else:
+            print(f"Data center not found: {datacenter_id}")
+            return False  # Indicating failure
 
     def update(self):
         """ Advance all data centers and their servers one time step forward. """
@@ -305,6 +317,8 @@ class Inventory:
         # Log utilization after the action
         self.log_utilization()
         return success  # Return whether the action was successful
+    def get_datacenter_latency_sensitivity(self, server_type) :
+        return self._givens.servers_df[self._givens.servers_df['server_generation'] == server_type].iloc[0]['latency_sensitivity']
 
 class ExpensesReturns:
     def __init__(self):
@@ -364,7 +378,7 @@ class ExpensesReturns:
     def get_snapshot(self):
         """Takes a snapshot of the current total costs."""
         return {key: value for key, value in self.total_costs.items()}
-
+    
 class ProblemData:
     def __init__(self):
         self.datacenters_df, self.servers_df, self.selling_prices_df = load_problem_data_without_demand()
@@ -402,3 +416,18 @@ class InputDemandDataActual:
     def get_demand_for_time_step(self, time_step):
         filtered_df = self.demand_data_df[self.demand_data_df['time_step'] == time_step]
         return filtered_df
+    def get_future_demand(self, server_type, latency_sensitivity, magic_number_future, current_time_step):
+        # Calculate the last time step to consider in the future demand calculation
+        future_last_time_step = current_time_step + magic_number_future
+
+        # Filter demand data for the specific server type and latency sensitivity across the required future time steps
+        future_demand = self.demand_data_df[
+            (self.demand_data_df['server_generation'] == server_type) &
+            (self.demand_data_df['time_step'] > current_time_step) &
+            (self.demand_data_df['time_step'] <= future_last_time_step)
+        ]
+
+        # Summing up future demand values for 'high', 'low', 'medium'
+        total_future_demand = future_demand[f'{latency_sensitivity}'].sum()
+
+        return total_future_demand
