@@ -20,4 +20,4 @@
 ## Submission Overview
 Due to unexpected challenges with the RL implementation and time constraints, we have decided to submit a simplified version that only includes the "buy" action. This decision allows us to ensure functionality within the remaining four days of the hackathon.
 
-## 7069636B206D6520706C65617365
+## 6006.13, 7069636B206D6520706C65617365!
