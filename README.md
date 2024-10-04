@@ -1,24 +1,23 @@
 # Server Fleet Management: Plan of Action
 
-## Dublin Dolphins - Team Members: Lakshay, Abhishek, Rohan, Yash, Sai
+## Dublin Dolphins - Team Members: Lakshay, Abhishek, Rohan, Yash, Sai Surisetti
 
 ## Notes and System Design - from Sai Surisetti
-1. https://1drv.ms/u/s!Ajm45BTpMJpugdpI1rtgeF7TengtdQ
-2. https://www.youtube.com/watch?v=aj-61DBfSp0
-3. https://www.youtube.com/watch?v=B--_B9ZiLAc
+1. [Project Notes - OneDrive](https://1drv.ms/u/s!Ajm45BTpMJpugdpI1rtgeF7TengtdQ)
+2. [System Design Overview - YouTube](https://www.youtube.com/watch?v=aj-61DBfSp0)
+3. [Detailed Design Walkthrough - YouTube](https://www.youtube.com/watch?v=B--_B9ZiLAc)
 
-## Entry Point for Training
-1. application_training.py
+## Entry Points
+- **Training Module:** `application_training.py`
+- **Production Module:** `application.py` (Pending: Importing `.joblib`/`.zip` files)
 
-## Entry Point for Actual
-1. application.py (Does not have the import .joblib/.zip files code yet)
+## Action Items
+1. **Reinforcement Learning Checks:** Verify if the RL agent correctly resets to the original state after each action. This functionality is critical and needs confirmation. (Note: This item was outdated as of September 3rd and needs reevaluation.)
+2. **Classes Calculation:** Update calculations in `Classes.py` based on specifications in the Hackathon Manual (README.md).
+3. **Observation Space Review:** Reevaluate the variables displayed in the Observation Space. (Note: This item was outdated as of September 3rd and needs reevaluation.)
+4. **Team Review Request:** Please review the notes and comments in `evaluation.py` as they are crucial for understanding our system’s evaluation logic.
 
-## Important to do
-1. Check if the RL agent is taking care of the "RESETTING IT BACK TO THE ORIGINAL STATE" AFTER TRYING ACTIONS... since I am new to RL; I am unsure if the library will take care of it. I'm unsure about this. (Outdated as of Sep 3).
-2. Calculations on Classes.py based on README.md (Hackathon Manual).
-3. Reconsider the variables being shown on Obervation Space. (Outdated as of Sep 3)
-4. Requesting team to go through my notes mentioned above, and comments in evaluation.py written by me - extremely helpful.. thank you, team. - @saisurisettigriffith
+## Submission Overview
+Due to unexpected challenges with the RL implementation and time constraints, we have decided to submit a simplified version that only includes the "buy" action. This decision allows us to ensure functionality within the remaining four days of the hackathon.
 
-## Submission
-1. RL was not working in the way we expected, time-constraint, more logical to find another approach given the 4 days remaining time-constraint.
-2. Due to time constraints, we are submitting a basic "only buy action enabled" solution for now (Sep 3).
+## 7069636B206D6520706C65617365
